@@ -243,7 +243,11 @@ class MS_Field(tk.Canvas):
 
 def main():
     # Get args
-    x,y,m = sys.argv[1:]
+    x, y, m = 10, 10, 5
+    try:
+        x,y,m = sys.argv[1:]
+    except:
+        pass
 
     # Create window
     root = tk.Tk()
