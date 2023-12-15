@@ -351,7 +351,7 @@ class MS_Game2:
             if self.field[i].mined:
                 continue
             nebs = self.neighbors(i)
-            mines = len([0 for n in nebs if self.field[n][1] == -1])
+            mines = len([n for n in nebs if self.field[n].mined])
             self.field[i].number = mines
     
     def neighbors(self, n):
@@ -420,6 +420,9 @@ class MS_Game2:
     def is_active(self):
         return self.status == MS_Status.ACTIVE
 
+    def is_complete(self):
+        return self.status == MS_Status.COMPLETE
+    
     def is_lose(self):
         if self.status != MS_Status.COMPLETE:
             raise Exception("Called is_lose() while game is not complete")
@@ -466,6 +469,12 @@ class MS_Game2:
 
     def get_all_flagged(self):
         return [n for n in range(self.N) if self.field[n].flagged]
+
+    def unflagged_mines(self):
+        return [i for i in range(self.N) if self.is_mined(i) and not self.is_flagged(i)]
+    
+    def misplaced_flags(self):
+        return [i for i in range(self.N) if self.is_flagged(i) and not self.is_mined(i)]
 
     # Toggle the flagg setting on tile n
     def flag(self, n):
@@ -584,9 +593,10 @@ class MS_Game2:
                 if not tile.mined:
                     bad_flags.append(i)
             else:
-                displayed_tiles.append(i)
                 if self.is_mined(i):
                     detonated.append(i)
+                else:
+                    displayed_tiles.append(i)
 
         # Indicate clear event
         self.BulkTileClearCallback(displayed_tiles)

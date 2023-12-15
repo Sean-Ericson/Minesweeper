@@ -19,7 +19,13 @@ class MS_App(tk.Frame):
         self.y = y
         self.mines = mines
 
-        self.game = MS_Game(x, y, mines)
+        self.game = MS_Game2(x, y, mines)
+        self.game.TileClearCallback = self.handle_tile_displayed
+        self.game.BulkTileClearCallback = self.handle_bulk_tile_display
+        self.game.TileFlaggedCallback = self.handle_tile_flag_changed
+        self.game.GameResetCallback = self.handle_reset
+        self.game.GameCompleteCallback = self.handle_game_complete
+
         self.header = MS_Header(self)
         self.minefield = MS_Field(self)
 
@@ -30,37 +36,37 @@ class MS_App(tk.Frame):
     def get_game(self):
         return self.game
 
-    def game_active(self):
-        return self.game.status == MS_Status.ACTIVE
-
     def update(self):
         self.minefield.focus_set()
         self.update_time()
-        if len(self.game.event_queue) > 0:
-            type, data = self.game.event_queue.pop(0)
-            if type == "is_cleared":
-                self.minefield.clear_tiles(data)
-            if type == "FLAG_PLACED":
-                tile, flags = data
-                self.minefield.place_flag(tile)
-                self.header.update_flag_count(flags)
-            if type == "FLAG_REMOVED":
-                tile, flags = data
-                self.minefield.remove_flag(tile)
-                self.header.update_flag_count(flags)
-            if type == "WIN":
-                self.win_game()
-            if type == "LOSE":
-                self.lose_game(data)
-            if type == "RESET":
-                self.update_reset()
         self.root.after(75, self.update)
 
+    def handle_tile_displayed(self, tile_num):
+        self.minefield.clear_tile(tile_num)
+    
+    def handle_bulk_tile_display(self, tile_nums):
+        self.minefield.clear_tiles(tile_nums)
+
+    def handle_tile_flag_changed(self, tile_num):
+        if self.game.is_flagged(tile_num):
+            self.minefield.place_flag(tile_num)
+        else:
+            self.minefield.remove_flag(tile_num)
+        self.header.update_flag_count(self.game.flags)
+
+    def handle_reset(self):
+        self.update_reset()
+
+    def handle_game_complete(self):
+        if self.game.is_win():
+            self.win_game()
+        elif self.game.is_lose():
+            self.lose_game()
+
     def update_time(self):
-        try:
-            time = self.game.get_cur_time()
-        except:
+        if not self.game.is_active():
             return
+        time = self.game.get_cur_time()
         self.header.set_time(int(time))
 
     def button_click(self):
@@ -69,26 +75,18 @@ class MS_App(tk.Frame):
         else:
             self.game.reset()
 
-    def manual_reset(self, event):
+    def manual_reset(self):
         self.game.reset()
 
-    def flag_cheat(self, event):
-        MS_AI.flag_obvious(self.game)
-
-    def clear_cheat(self, event):
-        MS_AI.clear_obvious(self.game)
-
-    def super_cheat(self, event):
-        MS_AI.AI_1(self.game)
-
-    def first_move(self, event):
+    def first_move(self):
+        if self.game.is_ready():
+            self.game.start_game()
         self.game.clear_random_empty()
 
-    def lose_game(self, data):
-        mines, flags = data
+    def lose_game(self):
         self.header.update_lose()
-        self.minefield.reveal_mines(mines)
-        self.minefield.reveal_bad_flags(flags)
+        self.minefield.reveal_mines(self.game.unflagged_mines())
+        self.minefield.reveal_bad_flags(self.game.misplaced_flags())
         return
 
     def win_game(self):
@@ -150,15 +148,14 @@ class MS_Field(tk.Canvas):
         super().__init__(root, *args, **kwargs)
         self.configure(width=root.x*TILE_SIZE+2, height=root.y*TILE_SIZE+2,  highlightthickness=0, borderwidth=0)
         self.root = root
+
+        self.tile_size = TILE_SIZE
         
         self.bind("<1>", self.lclick_callback)
         self.bind("<3>", self.rclick_callback)
         self.bind("<Return>", lambda _: self.root.button_click())
-        self.bind("r", self.root.manual_reset)
-        self.bind("f", self.root.flag_cheat)
-        self.bind("c", self.root.clear_cheat)
-        self.bind("1", self.root.first_move)
-        self.bind("a", self.root.super_cheat)
+        self.bind("r", lambda _: self.root.manual_reset())
+        self.bind("1", lambda _: self.root.first_move())
         self.new_field()
         return
 
@@ -167,10 +164,10 @@ class MS_Field(tk.Canvas):
         self.texts = []
         x, y = self.root.x, self.root.y
         for i in range(x*y):
-            x1 = (i%x) * TILE_SIZE
-            y1 = (i//x) * TILE_SIZE
-            x2 = x1 + TILE_SIZE
-            y2 = y1 + TILE_SIZE
+            x1 = (i%x) * self.tile_size
+            y1 = (i//x) * self.tile_size
+            x2 = x1 + self.tile_size
+            y2 = y1 + self.tile_size
             self.tiles.append(self.create_rectangle(x1, y1, x2, y2, outline='black', fill='grey'))
             self.texts.append(self.create_text(((x1+x2)/2, (y1+y2)/2), text=''))
 
@@ -179,18 +176,14 @@ class MS_Field(tk.Canvas):
         self.new_field()
 
     def click_to_tile(self, event):
-        return self.root.game.tile_num(event.x // TILE_SIZE, event.y // TILE_SIZE)
-
-    def display_tile(self, n):
-        game = self.root.game
-
+        return self.root.game.tile_num(event.x // self.tile_size, event.y // self.tile_size)
 
     def clear_tiles(self, ts):
         game = self.root.game
         for tile in ts:
-            num = game.field[tile][1]
+            num = game.field[tile].number
             if num != 0:
-                self.itemconfigure(self.texts[tile], text=game.field[tile][0], fill=COLORS[num-1])
+                self.itemconfigure(self.texts[tile], text=str(num), fill=COLORS[num-1])
             self.itemconfigure(self.tiles[tile], fill='white')
         return
 
@@ -218,10 +211,16 @@ class MS_Field(tk.Canvas):
 
     def lclick_callback(self, event):
         t = self.click_to_tile(event)
-        game = self.root.get_game()
+        game = self.root.game
 
-        if (t<0) or (t>game.x*game.y -1):
+        if game.is_complete():
+            return
+
+        if (t < 0) or (t > (game.N - 1)):
             raise Exception("bad click?")
+
+        if game.is_ready():
+            game.start_game()
 
         # clear tile
         game.clear(t)
@@ -234,6 +233,15 @@ class MS_Field(tk.Canvas):
     def rclick_callback(self, event):
         t = self.click_to_tile(event)
         game = self.root.get_game()
+
+        if game.is_complete():
+            return
+
+        if (t < 0) or (t > (game.N - 1)):
+            raise Exception("bad click?")
+        
+        if game.is_ready():
+            game.start_game()
 
         # Flag tile in game
         game.flag(t)
