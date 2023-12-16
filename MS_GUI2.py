@@ -20,11 +20,11 @@ class MS_App(tk.Frame):
         self.mines = mines
 
         self.game = MS_Game2(x, y, mines)
-        self.game.TileClearCallback = self.handle_tile_displayed
-        self.game.BulkTileClearCallback = self.handle_bulk_tile_display
-        self.game.TileFlaggedCallback = self.handle_tile_flag_changed
-        self.game.GameResetCallback = self.handle_reset
-        self.game.GameCompleteCallback = self.handle_game_complete
+        self.game.TileDisplayHandlers += [self.handle_tile_displayed]
+        self.game.BulkTileDisplayHandlers += [self.handle_bulk_tile_display]
+        self.game.TileFlagChangedHandlers += [self.handle_tile_flag_changed]
+        self.game.GameResetHandlers += [self.handle_reset]
+        self.game.GameCompleteHandlers += [self.handle_game_complete]
 
         self.header = MS_Header(self)
         self.minefield = MS_Field(self)
@@ -44,8 +44,8 @@ class MS_App(tk.Frame):
     def handle_tile_displayed(self, tile_num):
         self.minefield.clear_tile(tile_num)
     
-    def handle_bulk_tile_display(self, tile_nums):
-        self.minefield.clear_tiles(tile_nums)
+    def handle_bulk_tile_display(self, tiles):
+        self.minefield.clear_tiles([tile.id for tile in tiles])
 
     def handle_tile_flag_changed(self, tile_num):
         if self.game.is_flagged(tile_num):
@@ -156,32 +156,49 @@ class MS_Field(tk.Canvas):
         self.bind("<Return>", lambda _: self.root.button_click())
         self.bind("r", lambda _: self.root.manual_reset())
         self.bind("1", lambda _: self.root.first_move())
+        self.bind("<Control-Up>", lambda _: self.increment_tile_size())
+        self.bind("<Control-Down>", lambda _: self.decrement_tile_size())
         self.new_field()
         return
+    
+    def increment_tile_size(self):
+        self.tile_size += 1
+        self.configure(width=self.root.x*self.tile_size+2, height=self.root.y*self.tile_size+2)
+        self.new_field(self.root.game.field)
+    
+    def decrement_tile_size(self):
+        self.tile_size -= 1
+        self.configure(width=self.root.x*self.tile_size+2, height=self.root.y*self.tile_size+2)
+        self.new_field(self.root.game.field)
 
-    def new_field(self):
-        self.tiles = []
-        self.texts = []
+    def new_field(self, recreate=False):
+        if not recreate:
+            self.tiles = []
+            self.texts = []
         x, y = self.root.x, self.root.y
         for i in range(x*y):
             x1 = (i%x) * self.tile_size
             y1 = (i//x) * self.tile_size
             x2 = x1 + self.tile_size
             y2 = y1 + self.tile_size
-            self.tiles.append(self.create_rectangle(x1, y1, x2, y2, outline='black', fill='grey'))
-            self.texts.append(self.create_text(((x1+x2)/2, (y1+y2)/2), text=''))
+            if not recreate:
+                self.tiles.append(self.create_rectangle(x1, y1, x2, y2, outline='black', fill='grey'))
+                self.texts.append(self.create_text(((x1+x2)/2, (y1+y2)/2), text=''))
+            else:
+                self.coords(self.tiles[i], x1, y1, x2, y2)
+                self.coords(self.texts[i], ((x1+x2)/2, (y1+y2)/2))
 
 
     def update_reset(self):
         self.new_field()
 
     def click_to_tile(self, event):
-        return self.root.game.tile_num(event.x // self.tile_size, event.y // self.tile_size)
+        return self.root.game.field.tile_num(event.x // self.tile_size, event.y // self.tile_size)
 
     def clear_tiles(self, ts):
         game = self.root.game
         for tile in ts:
-            num = game.field[tile].number
+            num = game.field[tile].mine_count
             if num != 0:
                 self.itemconfigure(self.texts[tile], text=str(num), fill=COLORS[num-1])
             self.itemconfigure(self.tiles[tile], fill='white')

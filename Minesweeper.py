@@ -305,11 +305,73 @@ class MS_Status(Enum):
     COMPLETE = 2
 
 class MS_Tile:
-    def __init__(self):
+    def __init__(self, id):
         self.displayed = False
         self.flagged = False
         self.mined = False
-        self.number = None
+        self.mine_count = None
+        self.id = id
+        self.neighbors = []
+
+    def is_displayed_number(self):
+        return self.displayed and self.mine_count > 0
+
+class MS_Field:
+    def __init__(self, x, y, m):
+        self.x = x
+        self.y = y
+        self.N = x*y
+        self.m = m
+        self.tiles = []
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self.tiles[key]
+        elif isinstance(key, tuple):
+            return self.tiles[self.tile_num(*key)]
+        return None
+    
+    def __setitem__(self, key, val):
+        if isinstance(key, int):
+            self.tiles[key] = val
+        elif isinstance(key, tuple):
+            self.tiles[self.tile_num(*key)] = val
+
+    def __iter__(self):
+        return iter(self.tiles)
+
+    def initialize(self):
+        self.tiles = [MS_Tile(i) for i in range(self.N)]
+        
+        # mines
+        for i in random.sample(list(range(self.N)), self.m):
+            self.tiles[i].mined = True
+        
+        # numbers/neighbors
+        for i in range(self.N):
+            if self.tiles[i].mined:
+                continue
+            nebs = self.neighbors(i)
+            mines = len([n for n in nebs if self.tiles[n].mined])
+            self.tiles[i].mine_count = mines
+            self.tiles[i].neighbors = nebs
+
+    def neighbors(self, n):
+        x,y = self.tile_loc(n)
+        nbs = [self.tile_num(x+i, y+j) for i in [-1,0,1] for j in [-1,0,1] if self.is_valid_loc(x+i, y+j) and not (i == 0 and j == 0)]
+        return nbs
+    
+    def tile_num(self, x, y):
+        return y*self.x + x
+
+    def tile_loc(self, n):
+        return (n%self.x, n//self.x)
+    
+
+     # Check if (x,y) is a valid tile
+    
+    def is_valid_loc(self, x, y):
+        return (x>=0) and (x<self.x) and (y>=0) and (y<self.y)
 
 class MS_Game2:
     def __init__(self, x, y, m):
@@ -329,46 +391,24 @@ class MS_Game2:
         self.total_time = 0
         self.final_score = 0
 
-        self.TileClearCallback = None
-        self.BulkTileClearCallback = None
-        self.TileFlaggedCallback = None
-        self.GameCompleteCallback = None
-        self.GameResetCallback = None
+        self.TileDisplayHandlers = []
+        self.BulkTileDisplayHandlers = []
+        self.TileFlagChangedHandlers = []
+        self.GameCompleteHandlers = []
+        self.GameResetHandlers = []
+
+        self.field = MS_Field(x, y, m)
 
         # Initialize field
         self.init_field()
     
+    def call_handlers(self, handlers, *args):
+        for handler in handlers:
+            handler(*args)
+
     # Place mines and set counts
     def init_field(self):
-        # Set mines
-        self.field = [MS_Tile() for _ in range(self.N)]
-
-        for i in random.sample(list(range(self.N)), self.m):
-            self.field[i].mined = True
-
-        # Set numbers
-        for i in range(self.N):
-            if self.field[i].mined:
-                continue
-            nebs = self.neighbors(i)
-            mines = len([n for n in nebs if self.field[n].mined])
-            self.field[i].number = mines
-    
-    def neighbors(self, n):
-        x,y = self.tile_loc(n)
-        nbs = [self.tile_num(x+i, y+j) for i in [-1,0,1] for j in [-1,0,1] if self.is_valid_loc(x+i, y+j) and not (x == 0 and y == 0)]
-        return nbs
-    
-    def tile_num(self, x, y):
-        return y*self.x + x
-
-    # Convert tile number to (x,y)
-    def tile_loc(self, n):
-        return (n%self.x, n//self.x)
-
-    # Check if (x,y) is a valid tile
-    def is_valid_loc(self, x, y):
-        return (x>=0) and (x<self.x) and (y>=0) and (y<self.y)
+        self.field.initialize()
 
     # Return str repr of the field
     def __str__(self):
@@ -376,9 +416,21 @@ class MS_Game2:
         for y in range(self.y):
             l = ""
             for x in range(self.x):
-                l += self.field[self.tile_num(x,y)][0]
+                tile = self.field[x, y]
+                if tile.displayed:
+                    if tile.mine_count == 0:
+                        l += " "
+                    else:
+                        l += str(tile.mine_count)
+                elif tile.flagged:
+                    l += "F"
+                else:
+                    l += "X"
             s += l+'\n'
         return s
+
+    def get_tiles(self, tile_ids):
+        return [self.field[id] for id in tile_ids]
 
     # Reset the game
     def reset(self):
@@ -390,8 +442,7 @@ class MS_Game2:
         self.total_time = 0
         self.final_score = 0
         self.init_field()
-        if self.GameResetCallback is not None:
-            self.GameResetCallback()
+        self.call_handlers(self.GameResetHandlers)
 
     # Get the elapsed time
     def get_cur_time(self):
@@ -451,7 +502,7 @@ class MS_Game2:
             self.game_won = True
         else:
             self.game_lost = True
-        self.GameCompleteCallback()
+        self.call_handlers(self.GameCompleteHandlers)
 
     # Check if a tile is cleared
     def is_displayed(self, n):
@@ -501,7 +552,7 @@ class MS_Game2:
                 return
 
         tile.flagged = not tile.flagged
-        self.TileFlaggedCallback(n)
+        self.call_handlers(self.TileFlagChangedHandlers, (n))
 
     # Set tile display value to hidden value
     def reveal(self, n):
@@ -518,9 +569,9 @@ class MS_Game2:
             tile = self.field[i]
             if tile.displayed or tile.flagged or tile.mined:
                 continue
-            if tile.number == 0:
+            if tile.mine_count == 0:
                 zero_tiles.append(i)
-            elif tile.number > 0:
+            elif tile.mine_count > 0:
                 number_tiles.append(i)
         if len(zero_tiles) > 0:
             self.clear(random.choice(zero_tiles))
@@ -552,30 +603,30 @@ class MS_Game2:
 
     # Clear tile n and all adjacent empty tiles, then repeat
     def cascade_clear(self, n):
-        stack = [n]
-        displayed_tiles = [n]
+        stack = [self.field[n]]
+        displayed_tiles = [self.field[n]]
 
         while len(stack) > 0:
 
             # Take a tile off the stack
-            t = stack.pop()
-            tile = self.field[t]
+            tile = stack.pop()
 
             # If the tile is empty and next to no mines
-            if tile.number == 0:
+            if tile.mine_count == 0:
 
                 # Get all its neighbors
-                for neb in self.neighbors(t):
+                for neb in tile.neighbors:
+                    neb_tile = self.field[neb]
                     # For each uncleared neighbor, add to stack
-                    if not self.field[neb].displayed:
-                        stack.append(neb)
-                        displayed_tiles.append(neb)
+                    if not neb_tile.displayed:
+                        stack.append(neb_tile)
+                        displayed_tiles.append(neb_tile)
 
             # Clear the tile
-            self.reveal(t)
+            self.reveal(tile.id)
 
         # Indicate what was is_cleared
-        self.BulkTileClearCallback(displayed_tiles)
+        self.call_handlers(self.BulkTileDisplayHandlers, (displayed_tiles))
 
     # Clear all unflagged tiles
     def clear_unflagged(self):
@@ -596,9 +647,9 @@ class MS_Game2:
                 if self.is_mined(i):
                     detonated.append(i)
                 else:
-                    displayed_tiles.append(i)
+                    displayed_tiles.append(tile)
 
         # Indicate clear event
-        self.BulkTileClearCallback(displayed_tiles)
+        self.call_handlers(self.BulkTileDisplayHandlers, (displayed_tiles))
 
         self.set_game_complete(game_won=len(detonated)==0)
