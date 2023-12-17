@@ -1,9 +1,11 @@
 #Minesweeper GUI by Sean Ericson
 
 from Minesweeper import *
-import MS_AI
+from MS_AI2 import MS_AI
 import tkinter as tk
 import sys
+import matplotlib.pyplot as plt
+import networkx as nx
 
 HEADER_SIZE = 35
 TILE_SIZE = 20
@@ -25,6 +27,8 @@ class MS_App(tk.Frame):
         self.game.TileFlagChangedHandlers += [self.handle_tile_flag_changed]
         self.game.GameResetHandlers += [self.handle_reset]
         self.game.GameCompleteHandlers += [self.handle_game_complete]
+
+        self.AI = MS_AI(self.game)
 
         self.header = MS_Header(self)
         self.minefield = MS_Field(self)
@@ -55,6 +59,7 @@ class MS_App(tk.Frame):
         self.header.update_flag_count(self.game.flags)
 
     def handle_reset(self):
+        self.AI.reset()
         self.update_reset()
 
     def handle_game_complete(self):
@@ -155,6 +160,9 @@ class MS_Field(tk.Canvas):
         self.bind("<3>", self.rclick_callback)
         self.bind("<Return>", lambda _: self.root.button_click())
         self.bind("r", lambda _: self.root.manual_reset())
+        self.bind("c", lambda _: self.cheat())
+        self.bind("g", lambda _: self.graph())
+        self.bind("q", lambda _: self.cheat2())
         self.bind("1", lambda _: self.root.first_move())
         self.bind("<Control-Up>", lambda _: self.increment_tile_size())
         self.bind("<Control-Down>", lambda _: self.decrement_tile_size())
@@ -226,6 +234,37 @@ class MS_Field(tk.Canvas):
         for f in flags:
             self.itemconfigure(self.tiles[f], fill='green')
 
+    def cheat(self):
+        ai = self.root.AI
+        game = self.root.game
+        if game.is_complete():
+            return
+        if game.is_ready():
+            game.start_game()
+            game.clear_random_empty()
+        flags, clears = ai.level_zero_actions()
+        for id in flags:
+            game.flag(id)
+        for id in clears:
+            game.clear(id)
+
+    def cheat2(self):
+        ai = self.root.AI
+        game = self.root.game
+        if game.is_complete():
+            return
+        if game.is_ready():
+            game.start_game()
+            game.clear_random_empty()
+        flags, clears = ai.level_n_actions(2)
+        for id in flags:
+            game.flag(id)
+        for id in clears:
+            game.clear(id)
+
+    def graph(self):
+        self.root.AI.display()
+
     def lclick_callback(self, event):
         t = self.click_to_tile(event)
         game = self.root.game
@@ -268,7 +307,7 @@ class MS_Field(tk.Canvas):
 
 def main():
     # Get args
-    x, y, m = 10, 10, 5
+    x, y, m = 10, 10, 17
     try:
         x,y,m = sys.argv[1:]
     except:

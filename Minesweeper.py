@@ -310,8 +310,16 @@ class MS_Tile:
         self.flagged = False
         self.mined = False
         self.mine_count = None
+        self.effective_count = None
         self.id = id
         self.neighbors = []
+    
+    @classmethod
+    def from_dict(dict):
+        tile = MS_Tile()
+        for k, v in dict.items():
+            setattr(tile, k, v)
+        return tile
 
     def is_displayed_number(self):
         return self.displayed and self.mine_count > 0
@@ -560,9 +568,6 @@ class MS_Game2:
 
     # For the first move, open a random empty tile
     def clear_random_empty(self):
-        if self.status != MS_Status.READY:
-            raise Exception()
-
         zero_tiles = []
         number_tiles = []
         for i in range(self.N):
@@ -620,10 +625,10 @@ class MS_Game2:
                     # For each uncleared neighbor, add to stack
                     if not neb_tile.displayed:
                         stack.append(neb_tile)
-                        displayed_tiles.append(neb_tile)
-
+                        
             # Clear the tile
             self.reveal(tile.id)
+            displayed_tiles.append(tile)
 
         # Indicate what was is_cleared
         self.call_handlers(self.BulkTileDisplayHandlers, (displayed_tiles))
