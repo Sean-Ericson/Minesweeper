@@ -108,7 +108,7 @@ class MS_AI:
         foo = 1
 
     def handle_game_reset(self):
-        foo = 1
+        self.reset()
 
     def update_full_graph(self, tile):
         # if it's in the full graph, it must be from when it was un-displayed.
@@ -123,8 +123,8 @@ class MS_AI:
         flagged_neighbors = len([n for n in neighbor_tiles if n.flagged])
         tile.effective_count = tile.mine_count - flagged_neighbors
 
-        if tile.effective_count <= 0:
-            return
+        #if tile.effective_count <= 0:
+        #    return
 
         self.full_graph.add_node(tile.id, **vars(tile))
         for neighbor in self.game.get_tiles(tile.neighbors):
@@ -133,26 +133,21 @@ class MS_AI:
                 self.full_graph.add_edge(tile.id, neighbor.id)
 
     def update_number_graph(self, tile):
-        if tile.mine_count == 0 or tile.effective_count <= 0:
+        if tile.mine_count == 0 or tile.effective_count == 0:
             return
-        
-        neighbor_tiles = self.game.get_tiles(tile.neighbors)
 
         # check for edges that need to be modified
-        for a,b,attr in list(self.number_graph.edges.data()):
-            if not tile.id in attr["nodes"]:
-                continue
-            attr["nodes"].remove(tile.id)
-            if len(attr["nodes"]) == 0:
-                self.number_graph.remove_edge(a,b)
+        self.number_graph_remove_undisplayed_tile(tile.id)
         
         # add new number to number graph
         self.number_graph.add_node(tile.id, **vars(tile))
 
         # add edges
         for uncleared_neighbor in self.full_graph[tile.id]:
+            if self.full_graph.nodes[uncleared_neighbor]["flagged"]:
+                continue
             for number_neighbor in self.full_graph[uncleared_neighbor]:
-                if number_neighbor == tile.id:
+                if number_neighbor == tile.id or self.full_graph.nodes[number_neighbor]["effective_count"] == 0:
                     continue
                 if self.number_graph.has_edge(tile.id, number_neighbor):
                     self.number_graph[tile.id][number_neighbor]["nodes"].append(uncleared_neighbor)
@@ -168,16 +163,47 @@ class MS_AI:
             self.full_graph.nodes[neb]["effective_count"] += -1 if self.game.is_flagged(id) else 1
 
     def flag_update_number_graph(self, id):
-        flagged = self.game.is_flagged(id)
+        if not id in self.full_graph.nodes:
+            return
+        flagged = self.full_graph.nodes[id]["flagged"]
+        # change effective counts
         for number_tile in self.full_graph[id]:
+            if not number_tile in self.number_graph.nodes:
+                continue
             self.number_graph.nodes[number_tile]["effective_count"] += -1 if flagged else 1
             if self.number_graph.nodes[number_tile]["effective_count"] == 0:
                 self.number_graph.remove_node(number_tile)
+        # check for edges that need to be modified
+        if flagged:
+            self.number_graph_remove_undisplayed_tile(id)
+        else:
+            self.number_graph_add_undisplayed_tile(id)
+    
+    def number_graph_remove_undisplayed_tile(self, undisplayed_tile_id):
+        id = undisplayed_tile_id
+        for a,b,attr in list(self.number_graph.edges.data()):
+                if not id in attr["nodes"]:
+                    continue
+                attr["nodes"].remove(id)
+                if len(attr["nodes"]) == 0:
+                    self.number_graph.remove_edge(a,b)
+
+    def number_graph_add_undisplayed_tile(self, undisplayed_tile_id):
+        id = undisplayed_tile_id
+        number_neighbors = [i for i in self.full_graph[id] if self.full_graph.nodes[i]["effective_count"] > 0]
+        for n1, n2 in combinations(number_neighbors, 2):
+            if self.number_graph.has_edge(n1, n2):
+                if not id in self.number_graph[n1][n2]["nodes"]:
+                    self.number_graph[n1][n2]["nodes"].append(id)
+            else:
+                self.number_graph.add_edge(n1, n2, nodes=[id])
+
 
     def reset(self):
         self.full_graph = nx.Graph()
+        self.number_graph = nx.Graph()
 
-    def display(self):
+    def display_full_graph(self):
         number_nodes = [id for id,attr in self.full_graph.nodes(data=True) if attr["displayed"]]
         flagged_nodes = [id for id,attr in self.full_graph.nodes(data=True) if not attr["displayed"] and attr["flagged"]]
         unflagged_nodes = [id for id,attr in self.full_graph.nodes(data=True) if not attr["displayed"] and not attr["flagged"]]
@@ -188,9 +214,21 @@ class MS_AI:
         for u in unflagged_nodes:
             self.full_graph.nodes[u]["color"] = 'red'
 
-        components = [self.full_graph.subgraph(c).copy() for c in nx.connected_components(self.full_graph)]
+        components0 = [self.full_graph.subgraph(c).copy() for c in nx.connected_components(self.full_graph)]
+        components = []
+        for c in components0:
+            dead = True
+            for i, attr in c.nodes.data():
+                if not attr["displayed"]:
+                    continue
+                if attr["effective_count"] > 0:
+                    dead = False
+                    break
+            if not dead:
+                components.append(c)
+
         n = len(components)
-        fig, ax = plt.subplots(ncols=n+1)
+        fig, ax = plt.subplots(ncols=n)
         ax = ax if hasattr(ax, '__iter__') else [ax]
         for i in range(n):
             plt.figure(i+1)
@@ -204,11 +242,21 @@ class MS_AI:
                     ax[i].text(x,y-0.1,s="{} ({})".format(node_data["mine_count"], node_data["effective_count"]), horizontalalignment='center')
             node_color = [attr["color"] for id,attr in graph.nodes(data=True)]
             nx.draw(graph, pos=pos, with_labels=True, node_color=node_color, ax=ax[i])
-
-        nx.draw(self.number_graph, with_labels=True, ax=ax[-1])
         fig.show()
 
-    def level_zero_actions(self):
+    def display_number_graph(self):
+        pos = {}
+        sep_x = 2.0 / self.game.x
+        sep_y = 2.0 / self.game.y
+        for id in self.number_graph.nodes:
+            x, y = self.game.field.tile_loc(id)
+            pos[id] = np.array([(x + 0.7*(np.random.random() - 0.5))*sep_x, 1 - (y + 0.7*(np.random.random() - 0.5))*sep_y])
+
+        fig, ax = plt.subplots()
+        nx.draw(self.number_graph, pos=pos, with_labels=True, ax=ax)
+        fig.show()
+
+    def level_one_actions(self):
         tiles_to_flag = []
         tiles_to_display = []
 
@@ -224,42 +272,39 @@ class MS_AI:
         return tiles_to_flag, tiles_to_display
     
     def level_n_actions(self, n):
-        if n == 0:
-            return self.level_zero_actions()
-        
+        if n == 1:
+            return self.level_one_actions()
+
         tiles_to_display = []
         tiles_to_flag = []
 
         for subgraph_indices in get_connected_subgraphs(self.number_graph, n):
-            number_subgraph = nx.subgraph(self.number_graph, subgraph_indices)
-            
-            # determine number of mines to try to apply to this subgraph
-            mine_count = min([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices])
-            
+
             # determine union of all adjacent uncleared tiles
-            for i in subgraph_indices:
-                for id in self.full_graph[i]:
-                    if not self.full_graph.nodes[id]["flagged"]:
-                        continue
-                    foo = 1
             mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["flagged"]]) for i in subgraph_indices]))
             
+            # determine number of mines to try to apply to this subgraph
+            min_mine_count = min(max([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), self.game.flags)
+            max_min_count = min(sum([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), len(mineable_tiles), self.game.flags)
+
             # determine all valid allocations of mines to tiles
             valid_perms = []
             tile_count = len(mineable_tiles)
-            for perm in generate_mine_perms(len(mineable_tiles), mine_count):
-                valid = True
-                for num_tile in subgraph_indices:
-                    try:
+            for mine_count in range(min_mine_count, max_min_count+1):
+                for perm in generate_mine_perms(len(mineable_tiles), mine_count):
+                    valid = True
+                    for num_tile in subgraph_indices:
                         unflagged_neighbors = [id for id in self.full_graph[num_tile] if not self.full_graph.nodes[id]["flagged"]]
-                        mine_count = len([id for id in unflagged_neighbors if perm[mineable_tiles.index(id)] == 1])
-                    except:
-                        foo = 1
-                    if self.number_graph.nodes[num_tile]["effective_count"] != mine_count:
-                        break
-                if valid:
-                    valid_perms.append(perm)
-            
+                        neighbor_mines = len([id for id in unflagged_neighbors if perm[mineable_tiles.index(id)] == 1])
+                        if self.number_graph.nodes[num_tile]["effective_count"] != neighbor_mines:
+                            valid = False
+                            break
+                    if valid:
+                        valid_perms.append(perm)
+
+            if len(valid_perms) == 0:
+                continue
+
             # determine any tiles that are always mined/not-mined
             always_mined = tile_count*[True]
             always_clear = tile_count*[True]
@@ -273,9 +318,9 @@ class MS_AI:
             
             # add to flag/clear lists
             for i in range(tile_count):
-                if always_mined[i]:
-                    tiles_to_flag.append[mineable_tiles[i]]
-                if always_clear[i]:
+                if always_mined[i] and not mineable_tiles[i] in tiles_to_flag:
+                    tiles_to_flag.append(mineable_tiles[i])
+                if always_clear[i] and not mineable_tiles[i] in tiles_to_display:
                     tiles_to_display.append(mineable_tiles[i])
         
         return tiles_to_flag, tiles_to_display

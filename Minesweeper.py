@@ -609,7 +609,7 @@ class MS_Game2:
     # Clear tile n and all adjacent empty tiles, then repeat
     def cascade_clear(self, n):
         stack = [self.field[n]]
-        displayed_tiles = [self.field[n]]
+        displayed_tiles = []
 
         while len(stack) > 0:
 
@@ -628,7 +628,8 @@ class MS_Game2:
                         
             # Clear the tile
             self.reveal(tile.id)
-            displayed_tiles.append(tile)
+            if not tile in displayed_tiles:
+                displayed_tiles.append(tile)
 
         # Indicate what was is_cleared
         self.call_handlers(self.BulkTileDisplayHandlers, (displayed_tiles))

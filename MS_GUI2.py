@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 
 HEADER_SIZE = 35
-TILE_SIZE = 20
+TILE_SIZE = 10
 COLORS = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
 
 class MS_App(tk.Frame):
@@ -101,6 +101,9 @@ class MS_App(tk.Frame):
     def update_reset(self):
         self.header.update_reset()
         self.minefield.update_reset()
+
+    def set_thinking(self, thinking):
+        self.header.update_thinking(thinking)
         
 
 class MS_Header(tk.Frame):
@@ -111,7 +114,7 @@ class MS_Header(tk.Frame):
 
         self.flag_counter = tk.Label(self, text=root.mines)
         self.time_counter = tk.Label(self, text='000')
-        self.button = tk.Button(self, text="Clear", command=self.button_callback)
+        self.button = tk.Button(self, text="Clear", state="disabled", command=self.button_callback)
 
         self.flag_counter.grid(row=0, column=0)
         self.button.grid(row=0, column=1)
@@ -133,17 +136,25 @@ class MS_Header(tk.Frame):
 
     def update_flag_count(self, flags):
         self.flag_counter.config(text=flags)
+        self.button.configure(state = "disabled" if flags != 0 else "normal")
 
     def update_win(self):
-        self.button.configure(fg='green', text="Restart")
+        self.button.configure(fg='green', text="Restart", state='normal')
         self.display_score()
 
     def update_lose(self):
-        self.button.configure(fg='red', text="Restart")
+        self.button.configure(fg='red', text="Restart", state='normal')
         self.display_score()
 
+    def update_thinking(self, thinking):
+        if thinking:
+            self.button.configure(text="Thinking...", state=self.button['state'])
+        else:
+            self.button.configure(fg='black', text="Clear", state=self.button['state'])
+        self.update()
+
     def update_reset(self):
-        self.button.configure(fg='black', text="Clear")
+        self.button.configure(fg='black', text="Clear", state='disabled')
         self.update_flag_count(self.root.game.m)
         self.time_counter.configure(text='000')
 
@@ -155,15 +166,27 @@ class MS_Field(tk.Canvas):
         self.root = root
 
         self.tile_size = TILE_SIZE
+        self.display_tile_ids = False
         
+        self.bind("q", lambda ev: print(ev, ev.state, bool(ev.state&4)))
         self.bind("<1>", self.lclick_callback)
         self.bind("<3>", self.rclick_callback)
         self.bind("<Return>", lambda _: self.root.button_click())
         self.bind("r", lambda _: self.root.manual_reset())
-        self.bind("c", lambda _: self.cheat())
-        self.bind("g", lambda _: self.graph())
-        self.bind("q", lambda _: self.cheat2())
-        self.bind("1", lambda _: self.root.first_move())
+        self.bind("s", lambda _: self.root.first_move())
+        self.bind("<Control-g>", lambda _: self.show_full_graph())
+        self.bind("<Shift-G>", lambda _: self.show_number_graph())
+        self.bind("n", lambda _: self.toggle_tile_ids())
+        self.bind("1", lambda ev: self.auto_cheat(1) if bool(ev.state&4) else self.cheat(1))
+        self.bind("2", lambda ev: self.auto_cheat(2) if bool(ev.state&4) else self.cheat(2))
+        self.bind("3", lambda ev: self.auto_cheat(3) if bool(ev.state&4) else self.cheat(3))
+        self.bind("4", lambda ev: self.auto_cheat(4) if bool(ev.state&4) else self.cheat(4))
+        self.bind("5", lambda ev: self.auto_cheat(5) if bool(ev.state&4) else self.cheat(5))
+        self.bind("6", lambda ev: self.auto_cheat(6) if bool(ev.state&4) else self.cheat(6))
+        self.bind("7", lambda ev: self.auto_cheat(7) if bool(ev.state&4) else self.cheat(7))
+        self.bind("8", lambda ev: self.auto_cheat(8) if bool(ev.state&4) else self.cheat(8))
+        self.bind("9", lambda ev: self.auto_cheat(9) if bool(ev.state&4) else self.cheat(9))
+        self.bind("0", lambda ev: self.auto_cheat(10) if bool(ev.state&4) else self.cheat(10))
         self.bind("<Control-Up>", lambda _: self.increment_tile_size())
         self.bind("<Control-Down>", lambda _: self.decrement_tile_size())
         self.new_field()
@@ -172,17 +195,24 @@ class MS_Field(tk.Canvas):
     def increment_tile_size(self):
         self.tile_size += 1
         self.configure(width=self.root.x*self.tile_size+2, height=self.root.y*self.tile_size+2)
-        self.new_field(self.root.game.field)
+        self.new_field(recreate=True)
     
     def decrement_tile_size(self):
         self.tile_size -= 1
         self.configure(width=self.root.x*self.tile_size+2, height=self.root.y*self.tile_size+2)
-        self.new_field(self.root.game.field)
+        self.new_field(recreate=True)
+
+    def toggle_tile_ids(self):
+        self.display_tile_ids = not self.display_tile_ids
+        for i in range(self.root.x*self.root.y):
+            self.itemconfig(self.tile_nums[i], text=(str(i) if self.display_tile_ids else ''))
+        self.new_field(recreate=True)
 
     def new_field(self, recreate=False):
         if not recreate:
             self.tiles = []
             self.texts = []
+            self.tile_nums = []
         x, y = self.root.x, self.root.y
         for i in range(x*y):
             x1 = (i%x) * self.tile_size
@@ -192,10 +222,11 @@ class MS_Field(tk.Canvas):
             if not recreate:
                 self.tiles.append(self.create_rectangle(x1, y1, x2, y2, outline='black', fill='grey'))
                 self.texts.append(self.create_text(((x1+x2)/2, (y1+y2)/2), text=''))
+                self.tile_nums.append(self.create_text((x1, y1), text=(str(i) if self.display_tile_ids else ''), anchor=tk.NW))
             else:
                 self.coords(self.tiles[i], x1, y1, x2, y2)
                 self.coords(self.texts[i], ((x1+x2)/2, (y1+y2)/2))
-
+                self.coords(self.tile_nums[i], (x1, y1))
 
     def update_reset(self):
         self.new_field()
@@ -210,15 +241,15 @@ class MS_Field(tk.Canvas):
             if num != 0:
                 self.itemconfigure(self.texts[tile], text=str(num), fill=COLORS[num-1])
             self.itemconfigure(self.tiles[tile], fill='white')
-        return
+        self.update()
 
     def place_flag(self, t):
         self.itemconfigure(self.texts[t], text='F')
-        return 
+        self.update()
 
     def remove_flag(self, t):
         self.itemconfigure(self.texts[t], text='')
-        return
+        self.update()
 
     def reveal_mines(self, mines):
         for m in mines:
@@ -234,7 +265,9 @@ class MS_Field(tk.Canvas):
         for f in flags:
             self.itemconfigure(self.tiles[f], fill='green')
 
-    def cheat(self):
+    def cheat(self, n):
+        self.root.set_thinking(thinking=True)
+        print("Cheat level {} starting".format(n))
         ai = self.root.AI
         game = self.root.game
         if game.is_complete():
@@ -242,13 +275,18 @@ class MS_Field(tk.Canvas):
         if game.is_ready():
             game.start_game()
             game.clear_random_empty()
-        flags, clears = ai.level_zero_actions()
+        flags, clears = ai.level_n_actions(n)
         for id in flags:
             game.flag(id)
         for id in clears:
             game.clear(id)
+        progress = (len(flags) > 0) or (len(clears) > 0)
+        print("Cheat complete ({})".format("progress made" if progress else "no progress"))
+        self.root.set_thinking(thinking=False)
 
-    def cheat2(self):
+    def auto_cheat(self, max_level):
+        self.root.set_thinking(thinking=True)
+        print("Auto-cheat starting (level {})".format(max_level))
         ai = self.root.AI
         game = self.root.game
         if game.is_complete():
@@ -256,14 +294,32 @@ class MS_Field(tk.Canvas):
         if game.is_ready():
             game.start_game()
             game.clear_random_empty()
-        flags, clears = ai.level_n_actions(2)
-        for id in flags:
-            game.flag(id)
-        for id in clears:
-            game.clear(id)
+        level = 1
+        progress = False
+        while True:
+            print("Current level: {}".format(level), end='\r', flush=True)
+            flags, clears = ai.level_n_actions(level)
+            if len(flags) > 0 or len(clears) > 0:
+                progress = True
+                for id in flags:
+                    game.flag(id)
+                for id in clears:
+                    game.clear(id)
+                level = 1
+                continue
+            else:
+                if level == max_level:
+                    break
+                level += 1
+        
+        print("Auto-cheat complete ({})".format("progress made" if progress else "no progress"))
+        self.root.set_thinking(thinking=False)
 
-    def graph(self):
-        self.root.AI.display()
+    def show_full_graph(self):
+        self.root.AI.display_full_graph()
+
+    def show_number_graph(self):
+        self.root.AI.display_number_graph()
 
     def lclick_callback(self, event):
         t = self.click_to_tile(event)
@@ -307,7 +363,11 @@ class MS_Field(tk.Canvas):
 
 def main():
     # Get args
-    x, y, m = 10, 10, 17
+    #x, y, m = 125, 65, 2000#1625
+    #x, y, m = 127, 66, 2000
+    #x, y, m = 20, 20, 80
+    #x, y, m = 16, 30, 99
+    x, y, m = 381, 208, 15850
     try:
         x,y,m = sys.argv[1:]
     except:
