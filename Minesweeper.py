@@ -400,7 +400,6 @@ class MS_Game2:
         self.final_score = 0
 
         self.TileDisplayHandlers = []
-        self.BulkTileDisplayHandlers = []
         self.TileFlagChangedHandlers = []
         self.GameCompleteHandlers = []
         self.GameResetHandlers = []
@@ -601,7 +600,9 @@ class MS_Game2:
         # If you've is_cleared a mine, bummer
         if self.is_mined(n):
             self.reveal(n)
+            self.call_handlers(self.TileDisplayHandlers, ([self.field[n]]))
             self.set_game_complete(game_won=False)
+            return
         # Otherwise, cascade clear
         else:
             self.cascade_clear(n)
@@ -632,7 +633,7 @@ class MS_Game2:
                 displayed_tiles.append(tile)
 
         # Indicate what was is_cleared
-        self.call_handlers(self.BulkTileDisplayHandlers, (displayed_tiles))
+        self.call_handlers(self.TileDisplayHandlers, (displayed_tiles))
 
     # Clear all unflagged tiles
     def clear_unflagged(self):
@@ -655,7 +656,7 @@ class MS_Game2:
                 else:
                     displayed_tiles.append(tile)
 
-        # Indicate clear event
-        self.call_handlers(self.BulkTileDisplayHandlers, (displayed_tiles))
-
         self.set_game_complete(game_won=len(detonated)==0)
+
+        # Indicate clear event
+        self.call_handlers(self.TileDisplayHandlers, (displayed_tiles))

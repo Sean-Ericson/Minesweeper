@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 
 HEADER_SIZE = 35
-TILE_SIZE = 10
+TILE_SIZE = 20
 COLORS = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
 
 class MS_App(tk.Frame):
@@ -23,7 +23,6 @@ class MS_App(tk.Frame):
 
         self.game = MS_Game2(x, y, mines)
         self.game.TileDisplayHandlers += [self.handle_tile_displayed]
-        self.game.BulkTileDisplayHandlers += [self.handle_bulk_tile_display]
         self.game.TileFlagChangedHandlers += [self.handle_tile_flag_changed]
         self.game.GameResetHandlers += [self.handle_reset]
         self.game.GameCompleteHandlers += [self.handle_game_complete]
@@ -45,10 +44,7 @@ class MS_App(tk.Frame):
         self.update_time()
         self.root.after(75, self.update)
 
-    def handle_tile_displayed(self, tile_num):
-        self.minefield.clear_tile(tile_num)
-    
-    def handle_bulk_tile_display(self, tiles):
+    def handle_tile_displayed(self, tiles):
         self.minefield.clear_tiles([tile.id for tile in tiles])
 
     def handle_tile_flag_changed(self, tile_num):
@@ -167,6 +163,7 @@ class MS_Field(tk.Canvas):
 
         self.tile_size = TILE_SIZE
         self.display_tile_ids = False
+        self.death_tile = None
         
         self.bind("q", lambda ev: print(ev, ev.state, bool(ev.state&4)))
         self.bind("<1>", self.lclick_callback)
@@ -177,16 +174,17 @@ class MS_Field(tk.Canvas):
         self.bind("<Control-g>", lambda _: self.show_full_graph())
         self.bind("<Shift-G>", lambda _: self.show_number_graph())
         self.bind("n", lambda _: self.toggle_tile_ids())
-        self.bind("1", lambda ev: self.auto_cheat(1) if bool(ev.state&4) else self.cheat(1))
-        self.bind("2", lambda ev: self.auto_cheat(2) if bool(ev.state&4) else self.cheat(2))
-        self.bind("3", lambda ev: self.auto_cheat(3) if bool(ev.state&4) else self.cheat(3))
-        self.bind("4", lambda ev: self.auto_cheat(4) if bool(ev.state&4) else self.cheat(4))
-        self.bind("5", lambda ev: self.auto_cheat(5) if bool(ev.state&4) else self.cheat(5))
-        self.bind("6", lambda ev: self.auto_cheat(6) if bool(ev.state&4) else self.cheat(6))
-        self.bind("7", lambda ev: self.auto_cheat(7) if bool(ev.state&4) else self.cheat(7))
-        self.bind("8", lambda ev: self.auto_cheat(8) if bool(ev.state&4) else self.cheat(8))
-        self.bind("9", lambda ev: self.auto_cheat(9) if bool(ev.state&4) else self.cheat(9))
-        self.bind("0", lambda ev: self.auto_cheat(10) if bool(ev.state&4) else self.cheat(10))
+        self.bind("1", lambda ev: self.full_auto_cheat(1) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(1) if bool(ev.state&4) else self.cheat(1))
+        self.bind("2", lambda ev: self.full_auto_cheat(2) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(2) if bool(ev.state&4) else self.cheat(2))
+        self.bind("3", lambda ev: self.full_auto_cheat(3) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(3) if bool(ev.state&4) else self.cheat(3))
+        self.bind("4", lambda ev: self.full_auto_cheat(4) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(4) if bool(ev.state&4) else self.cheat(4))
+        self.bind("5", lambda ev: self.full_auto_cheat(5) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(5) if bool(ev.state&4) else self.cheat(5))
+        self.bind("6", lambda ev: self.full_auto_cheat(6) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(6) if bool(ev.state&4) else self.cheat(6))
+        self.bind("7", lambda ev: self.full_auto_cheat(7) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(7) if bool(ev.state&4) else self.cheat(7))
+        self.bind("8", lambda ev: self.full_auto_cheat(8) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(8) if bool(ev.state&4) else self.cheat(8))
+        self.bind("9", lambda ev: self.full_auto_cheat(9) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(9) if bool(ev.state&4) else self.cheat(9))
+        self.bind("0", lambda ev: self.full_auto_cheat(10) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(10) if bool(ev.state&4) else self.cheat(10))
+        self.bind("m", lambda ev: self.full_auto_cheat(self.root.game.N) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(self.root.game.N) if bool(ev.state&4) else self.cheat(self.root.game.N))
         self.bind("<Control-Up>", lambda _: self.increment_tile_size())
         self.bind("<Control-Down>", lambda _: self.decrement_tile_size())
         self.new_field()
@@ -237,6 +235,9 @@ class MS_Field(tk.Canvas):
     def clear_tiles(self, ts):
         game = self.root.game
         for tile in ts:
+            if self.root.game.is_mined(tile):
+                self.death_tile = tile
+                return
             num = game.field[tile].mine_count
             if num != 0:
                 self.itemconfigure(self.texts[tile], text=str(num), fill=COLORS[num-1])
@@ -254,7 +255,7 @@ class MS_Field(tk.Canvas):
     def reveal_mines(self, mines):
         for m in mines:
             self.itemconfigure(self.texts[m], text='M')
-            self.itemconfigure(self.tiles[m], fill='red')
+            self.itemconfigure(self.tiles[m], fill='orange' if self.death_tile is not None and self.death_tile == m else 'red')
 
     def reveal_bad_flags(self, flags):
         for f in flags:
@@ -287,32 +288,15 @@ class MS_Field(tk.Canvas):
     def auto_cheat(self, max_level):
         self.root.set_thinking(thinking=True)
         print("Auto-cheat starting (level {})".format(max_level))
-        ai = self.root.AI
-        game = self.root.game
-        if game.is_complete():
-            return
-        if game.is_ready():
-            game.start_game()
-            game.clear_random_empty()
-        level = 1
-        progress = False
-        while True:
-            print("Current level: {}".format(level), end='\r', flush=True)
-            flags, clears = ai.level_n_actions(level)
-            if len(flags) > 0 or len(clears) > 0:
-                progress = True
-                for id in flags:
-                    game.flag(id)
-                for id in clears:
-                    game.clear(id)
-                level = 1
-                continue
-            else:
-                if level == max_level:
-                    break
-                level += 1
-        
-        print("Auto-cheat complete ({})".format("progress made" if progress else "no progress"))
+        progress_made = self.root.AI.auto_play(max_level)
+        print("Auto-cheat complete ({})".format("progress made" if progress_made else "no progress"))
+        self.root.set_thinking(thinking=False)
+
+    def full_auto_cheat(self, max_level):
+        self.root.set_thinking(thinking=True)
+        print("Auto-cheat starting (level {})".format(max_level))
+        progress_made = self.root.AI.auto_play(max_level, to_completion=True, yolo_cutoff=0.1)
+        print("Auto-cheat complete ({})".format("progress made" if progress_made else "no progress"))
         self.root.set_thinking(thinking=False)
 
     def show_full_graph(self):
@@ -363,11 +347,13 @@ class MS_Field(tk.Canvas):
 
 def main():
     # Get args
-    #x, y, m = 125, 65, 2000#1625
+    #x, y, m = 10, 10, 25
+    x, y, m = 125, 65, 1625
     #x, y, m = 127, 66, 2000
     #x, y, m = 20, 20, 80
+    #x, y, m = 40, 40, 320
     #x, y, m = 16, 30, 99
-    x, y, m = 381, 208, 15850
+    #x, y, m = 381, 208, 15850
     try:
         x,y,m = sys.argv[1:]
     except:

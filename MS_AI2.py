@@ -3,6 +3,7 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 from collections import defaultdict
 from Minesweeper import *
 from functools import reduce
@@ -59,6 +60,7 @@ def generate_mine_perms(n, m):
     
     current = (n-m)*[0] + m*[1]
     final = m*[1] + (n-m)*[0]
+
     yield current
     while not np.all(np.array(current) == np.array(final)):
         # Find the rightmost 0 to the left of the rightmost 1.
@@ -74,35 +76,55 @@ def generate_mine_perms(n, m):
             current = slammed
             yield current
 
+def sample_mine_perms(n, m, num_samples):
+    samples = []
+    for _ in range(int(num_samples)):
+        sample = (n-m)*[0] + m*[1]
+        np.random.shuffle(sample)
+        samples.append(sample)
+    return samples
+
+############################################################
+# Helper Classes
+############################################################
+
+class Number_Subgraph:
+    def __init__(self, nodes, level=1):
+        self.nodes = nodes
+        self.level = level
+
+
 ############################################################
 # The Best AI Ever
 ############################################################
 
 class MS_AI:
     def __init__(self, game : MS_Game2):
-        self.game = game
-
         game.TileDisplayHandlers += [self.handle_tile_display]
-        game.BulkTileDisplayHandlers += [self.handle_bulk_tile_display]
         game.TileFlagChangedHandlers += [self.handle_tile_flag_changed]
         game.GameCompleteHandlers += [self.handle_game_complete]
         game.GameResetHandlers += [self.handle_game_reset]
+        self.game = game
 
         self.full_graph = nx.Graph()
         self.number_graph = nx.Graph()
+        self.number_subgraphs = []
 
-    def handle_tile_display(self, tile):
+    def handle_tile_display(self, tiles):
+        if not self.game.is_active():
+            return
         # update number graph after full graph
-        self.update_full_graph(tile)
-        self.update_number_graph(tile)
-
-    def handle_bulk_tile_display(self, tiles):
         for tile in tiles:
-            self.handle_tile_display(tile)
+            if self.game.is_mined(tile.id):
+                return
+            self.update_full_graph(tile)
+            self.update_number_graph(tile)
+        self.update_number_subgraphs()
 
     def handle_tile_flag_changed(self, id):
         self.flag_update_full_graph(id)
         self.flag_update_number_graph(id)
+        self.update_number_subgraphs()
 
     def handle_game_complete(self):
         foo = 1
@@ -198,6 +220,19 @@ class MS_AI:
             else:
                 self.number_graph.add_edge(n1, n2, nodes=[id])
 
+    def update_number_subgraphs(self):
+        new_subgraphs = []
+        current_subgraph_nodes = list(nx.connected_components(self.number_graph))
+        for nodes in current_subgraph_nodes:
+            new_graph = True
+            for old_subgraph in self.number_subgraphs:
+                if old_subgraph.nodes == nodes:
+                    new_subgraphs.append(old_subgraph)
+                    new_graph = False
+                    break
+            if new_graph:
+                new_subgraphs.append(Number_Subgraph(nodes))
+        self.number_subgraphs = new_subgraphs
 
     def reset(self):
         self.full_graph = nx.Graph()
@@ -271,7 +306,7 @@ class MS_AI:
 
         return tiles_to_flag, tiles_to_display
     
-    def level_n_actions(self, n):
+    def level_n_actions(self, n, perm_cutoff=None):
         if n == 1:
             return self.level_one_actions()
 
@@ -285,44 +320,175 @@ class MS_AI:
             
             # determine number of mines to try to apply to this subgraph
             min_mine_count = min(max([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), self.game.flags)
-            max_min_count = min(sum([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), len(mineable_tiles), self.game.flags)
+            max_mine_count = min(sum([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), len(mineable_tiles), self.game.flags)
 
-            # determine all valid allocations of mines to tiles
-            valid_perms = []
-            tile_count = len(mineable_tiles)
-            for mine_count in range(min_mine_count, max_min_count+1):
-                for perm in generate_mine_perms(len(mineable_tiles), mine_count):
-                    valid = True
-                    for num_tile in subgraph_indices:
-                        unflagged_neighbors = [id for id in self.full_graph[num_tile] if not self.full_graph.nodes[id]["flagged"]]
-                        neighbor_mines = len([id for id in unflagged_neighbors if perm[mineable_tiles.index(id)] == 1])
-                        if self.number_graph.nodes[num_tile]["effective_count"] != neighbor_mines:
-                            valid = False
-                            break
-                    if valid:
-                        valid_perms.append(perm)
+            valid_perms = self.get_valid_mine_perms(mineable_tiles, min_mine_count, max_mine_count, perm_cutoff=perm_cutoff)
 
-            if len(valid_perms) == 0:
-                continue
-
-            # determine any tiles that are always mined/not-mined
-            always_mined = tile_count*[True]
-            always_clear = tile_count*[True]
-
-            for p in valid_perms:
-                for i in range(tile_count):
-                    if p[i] == 0:
-                        always_mined[i] = False
-                    else:
-                        always_clear[i] = False
-            
             # add to flag/clear lists
-            for i in range(tile_count):
-                if always_mined[i] and not mineable_tiles[i] in tiles_to_flag:
+            for i in range(len(mineable_tiles)):
+                if all([mineable_tiles[i] in perm for perm in valid_perms]) and not mineable_tiles[i] in tiles_to_flag:
                     tiles_to_flag.append(mineable_tiles[i])
-                if always_clear[i] and not mineable_tiles[i] in tiles_to_display:
+                if all([not mineable_tiles[i] in perm for perm in valid_perms]) and not mineable_tiles[i] in tiles_to_display:
                     tiles_to_display.append(mineable_tiles[i])
         
         return tiles_to_flag, tiles_to_display
 
+    def get_valid_mine_perms(self, mineable_tiles, min_mine_count, max_mine_count, perm_cutoff=None):
+        mineable_tile_count = len(mineable_tiles)
+        number_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["flagged"]]) for i in mineable_tiles]))
+        valid_perms = []
+        for mine_count in range(min_mine_count, max_mine_count+1):
+            perm_count = math.comb(mineable_tile_count, mine_count)
+            if perm_cutoff is None or perm_count < perm_cutoff:
+                perm_gen = lambda: generate_mine_perms(mineable_tile_count, mine_count)
+            else:
+                perm_gen = lambda: sample_mine_perms(mineable_tile_count, mine_count, perm_cutoff)
+            for perm in perm_gen():
+                valid = True
+                for num_tile in number_tiles:
+                    unflagged_neighbors = [id for id in self.full_graph[num_tile] if not self.full_graph.nodes[id]["flagged"]]
+                    neighbor_mines = len([id for id in unflagged_neighbors if id in mineable_tiles and perm[mineable_tiles.index(id)] == 1])
+                    if set(unflagged_neighbors).issubset(mineable_tiles):
+                        if self.number_graph.nodes[num_tile]["effective_count"] != neighbor_mines:
+                            valid = False
+                            break
+                    else:
+                        if self.number_graph.nodes[num_tile]["effective_count"] < neighbor_mines:
+                            valid = False
+                            break
+                if valid:
+                    valid_perms.append(perm)
 
+        return [[id for id in mineable_tiles if perm[mineable_tiles.index(id)]] for perm in valid_perms]        
+        
+
+    def perform_actions(self, flags, clears):
+        for id in flags:
+            self.game.flag(int(id))
+        for id in clears:
+            if not self.game.is_active():
+                return
+            self.game.clear(int(id))
+
+    def auto_play(self, max_level, to_completion=False, perm_cutoff=1e4, yolo_cutoff=None):
+        # If the game's already over, bounce
+        if self.game.is_complete():
+            return
+        
+        # If the game isn't started, make first move
+        if self.game.is_ready():
+            self.game.start_game()
+            self.game.clear_random_empty()
+
+        while self.game.is_active():
+            # flag/clear as much as possible
+            actionable_subgraphs = sorted([g for g in self.number_subgraphs if g.level <= len(g.nodes) and g.level <= max_level], key=lambda x: x.level)
+            while self.game.is_active() and self.game.flags > 0 and len(actionable_subgraphs) > 0:
+                g = actionable_subgraphs[0]
+                flags, clears = self.level_n_actions(g.level, perm_cutoff=perm_cutoff)
+                if len(flags) > 0 or len(clears) > 0:
+                    self.perform_actions(flags, clears)
+                    g.level = 1
+                else:
+                    g.level += 1
+                actionable_subgraphs = sorted([g for g in self.number_subgraphs if g.level <= len(g.nodes) and g.level <= max_level], key=lambda x: x.level)
+
+            # if the game completed... somethin' went wrong
+            if self.game.is_complete():
+                return
+            
+            if not to_completion:
+                return
+            
+            # if we're out of flags, we done!
+            if self.game.flags == 0:
+                self.game.clear_unflagged()
+                return
+
+            # still got flags...
+            # determine whether to flag or yolo it and clear a rando
+            undiscovered_tiles = [i for i in range(self.game.N) if not (self.game.is_displayed(i) or i in self.full_graph.nodes)]
+
+            components = [g.nodes for g in self.number_subgraphs]
+            configurations = {}
+            for subgraph_indices in components:
+                # determine union of all adjacent uncleared tiles
+                mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["flagged"]]) for i in subgraph_indices]))
+                
+                # determine number of mines to try to apply to this subgraph
+                min_mine_count = min(max([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), self.game.flags)
+                max_mine_count = min(sum([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), len(mineable_tiles), self.game.flags)
+
+                valid_mine_perms = self.get_valid_mine_perms(mineable_tiles, min_mine_count, max_mine_count, perm_cutoff=perm_cutoff)
+                if len(valid_mine_perms) > 0:
+                    configurations[components.index(subgraph_indices)] = valid_mine_perms
+
+            min_mines = sum([min([len(mine_perm) for mine_perm in configs]) for configs in configurations.values()])
+            max_mines = sum([max([len(mine_perm) for mine_perm in configs]) for configs in configurations.values()])
+
+            min_residual_mine_count = max(self.game.flags - max_mines, 0)
+            max_residual_mine_count = max(self.game.flags - min_mines, 0)
+
+            min_resid_density = min_residual_mine_count / len(undiscovered_tiles) if len(undiscovered_tiles) > 0 else 1
+            max_resid_density = max_residual_mine_count / len(undiscovered_tiles) if len(undiscovered_tiles) > 0 else 1
+            initial_density = self.game.m / self.game.N
+
+            yolo_cutoff = yolo_cutoff or initial_density
+
+            discovered_tile_probs = {}
+            flags, clears = [], []
+            for subgraph_indices, configs in configurations.items():
+                counts = {}
+                for config in configs:
+                    for mine in config:
+                        if mine in counts.keys():
+                            counts[mine] += 1
+                        else:
+                            counts[mine] = 1
+                for k,v in counts.items():
+                    discovered_tile_probs[k] = v / len(configs)
+                    if discovered_tile_probs[k] == 0:
+                        flags.append(k)
+                    if discovered_tile_probs[k] == 1:
+                        clears.append(k)
+                
+            if len(flags) > 0 or len(clears) > 0:
+                self.perform_actions(flags, clears)
+                continue
+            
+            if len(discovered_tile_probs.items()) > 0:
+                min_tile, min_prob = sorted(discovered_tile_probs.items(), key=lambda x: x[1])[0]
+                if min_prob < yolo_cutoff or max_resid_density < yolo_cutoff:
+                    # YOLO it
+                    if min_prob < max_resid_density:
+                        self.perform_actions([], [min_tile])
+                        continue
+                    random_undiscovered = np.random.choice(undiscovered_tiles)
+                    self.perform_actions([], [random_undiscovered])
+                    continue
+            
+            # No YOLO, just flag
+            valid_flag_config = False
+            while not valid_flag_config:
+                tiles_to_flag = []
+                for subgraph_indices, configs in configurations.items():
+                    config = configs[np.random.randint(0, len(configs))]
+                    tiles_to_flag += config
+                tiles_to_flag = list(set(tiles_to_flag))
+                flag_delta = self.game.flags - len(tiles_to_flag)
+                if flag_delta > 0:
+                    boob_flap = list(np.random.choice(undiscovered_tiles, flag_delta, replace=False))
+                    tiles_to_flag += boob_flap
+
+                valid_flag_config = (len(tiles_to_flag) == self.game.flags)
+            
+            if len(tiles_to_flag) != len(set(tiles_to_flag)):
+                raise Exception("AHHHHHH WTF")
+
+            self.perform_actions(tiles_to_flag, [])
+            if self.game.flags != 0:
+                raise Exception("i don't even know")
+            self.game.clear_unflagged()
+            break
+                
+        foo = 1
