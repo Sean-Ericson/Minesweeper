@@ -306,14 +306,14 @@ class MS_AI:
 
         return tiles_to_flag, tiles_to_display
     
-    def level_n_actions(self, n, perm_cutoff=None):
+    def level_n_actions(self, n, nodes=None, perm_cutoff=None):
         if n == 1:
             return self.level_one_actions()
 
         tiles_to_display = []
         tiles_to_flag = []
 
-        for subgraph_indices in get_connected_subgraphs(self.number_graph, n):
+        for subgraph_indices in get_connected_subgraphs(self.number_graph if nodes is None else self.number_graph.subgraph(nodes), n):
 
             # determine union of all adjacent uncleared tiles
             mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["flagged"]]) for i in subgraph_indices]))
@@ -335,7 +335,7 @@ class MS_AI:
 
     def get_valid_mine_perms(self, mineable_tiles, min_mine_count, max_mine_count, perm_cutoff=None):
         mineable_tile_count = len(mineable_tiles)
-        number_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["flagged"]]) for i in mineable_tiles]))
+        number_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if id in self.number_graph.nodes and not self.full_graph.nodes[id]["flagged"]]) for i in mineable_tiles]))
         valid_perms = []
         for mine_count in range(min_mine_count, max_mine_count+1):
             perm_count = math.comb(mineable_tile_count, mine_count)
@@ -370,6 +370,103 @@ class MS_AI:
                 return
             self.game.clear(int(id))
 
+    def do_deductive_action(self, max_level):
+        # flag/clear as much as possible
+        actionable_subgraphs = sorted([g for g in self.number_subgraphs if g.level <= len(g.nodes) and g.level <= max_level], key=lambda x: x.level)
+        while self.game.is_active() and self.game.flags > 0 and len(actionable_subgraphs) > 0:
+            g = actionable_subgraphs[0]
+            flags, clears = self.level_n_actions(g.level, nodes=g.nodes)
+            if len(flags) > 0 or len(clears) > 0:
+                self.perform_actions(flags, clears)
+                g.level = 1
+            else:
+                g.level += 1
+            actionable_subgraphs = sorted([g for g in self.number_subgraphs if g.level <= len(g.nodes) and g.level <= max_level], key=lambda x: x.level)
+
+    def do_probable_actions(self, perm_cutoff, yolo_cutoff):
+        undiscovered_tiles = [i for i in range(self.game.N) if not (self.game.is_displayed(i) or i in self.full_graph.nodes)]
+
+        components = [g.nodes for g in self.number_subgraphs]
+        configurations = {}
+        for subgraph_indices in components:
+            # determine union of all adjacent uncleared tiles
+            mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["flagged"]]) for i in subgraph_indices]))
+            
+            # determine number of mines to try to apply to this subgraph
+            min_mine_count = min(max([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), self.game.flags)
+            max_mine_count = min(sum([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), len(mineable_tiles), self.game.flags)
+
+            valid_mine_perms = self.get_valid_mine_perms(mineable_tiles, min_mine_count, max_mine_count, perm_cutoff=perm_cutoff)
+            if len(valid_mine_perms) > 0:
+                configurations[components.index(subgraph_indices)] = valid_mine_perms
+
+        min_mines = sum([min([len(mine_perm) for mine_perm in configs]) for configs in configurations.values()])
+        max_mines = sum([max([len(mine_perm) for mine_perm in configs]) for configs in configurations.values()])
+
+        min_residual_mine_count = max(self.game.flags - max_mines, 0)
+        max_residual_mine_count = max(self.game.flags - min_mines, 0)
+
+        min_resid_density = min_residual_mine_count / len(undiscovered_tiles) if len(undiscovered_tiles) > 0 else 1
+        max_resid_density = max_residual_mine_count / len(undiscovered_tiles) if len(undiscovered_tiles) > 0 else 1
+        initial_density = self.game.m / self.game.N
+
+        yolo_cutoff = yolo_cutoff or initial_density
+
+        discovered_tile_probs = {}
+        flags, clears = [], []
+        for subgraph_indices, configs in configurations.items():
+            counts = {}
+            for config in configs:
+                for mine in config:
+                    if mine in counts.keys():
+                        counts[mine] += 1
+                    else:
+                        counts[mine] = 1
+            for k,v in counts.items():
+                discovered_tile_probs[k] = v / len(configs)
+                if discovered_tile_probs[k] == 0:
+                    flags.append(k)
+                if discovered_tile_probs[k] == 1:
+                    clears.append(k)
+            
+        if len(flags) > 0 or len(clears) > 0:
+            self.perform_actions(flags, clears)
+            return
+        
+        if len(discovered_tile_probs.items()) > 0:
+            min_tile, min_prob = sorted(discovered_tile_probs.items(), key=lambda x: x[1])[0]
+            if min_prob < yolo_cutoff or max_resid_density < yolo_cutoff:
+                # YOLO it
+                if min_prob < max_resid_density:
+                    self.perform_actions([], [min_tile])
+                    return
+                random_undiscovered = np.random.choice(undiscovered_tiles)
+                self.perform_actions([], [random_undiscovered])
+                return
+        
+        # No YOLO, just flag
+        valid_flag_config = False
+        while not valid_flag_config:
+            tiles_to_flag = []
+            for subgraph_indices, configs in configurations.items():
+                config = configs[np.random.randint(0, len(configs))]
+                tiles_to_flag += config
+            tiles_to_flag = list(set(tiles_to_flag))
+            flag_delta = self.game.flags - len(tiles_to_flag)
+            if flag_delta > 0:
+                boob_flap = list(np.random.choice(undiscovered_tiles, flag_delta, replace=False))
+                tiles_to_flag += boob_flap
+
+            valid_flag_config = (len(tiles_to_flag) == self.game.flags)
+        
+        if len(tiles_to_flag) != len(set(tiles_to_flag)):
+            raise Exception("AHHHHHH WTF")
+
+        self.perform_actions(tiles_to_flag, [])
+        if self.game.flags != 0:
+            raise Exception("i don't even know")
+        self.game.clear_unflagged()
+
     def auto_play(self, max_level, to_completion=False, perm_cutoff=1e4, yolo_cutoff=None):
         # If the game's already over, bounce
         if self.game.is_complete():
@@ -381,114 +478,22 @@ class MS_AI:
             self.game.clear_random_empty()
 
         while self.game.is_active():
-            # flag/clear as much as possible
-            actionable_subgraphs = sorted([g for g in self.number_subgraphs if g.level <= len(g.nodes) and g.level <= max_level], key=lambda x: x.level)
-            while self.game.is_active() and self.game.flags > 0 and len(actionable_subgraphs) > 0:
-                g = actionable_subgraphs[0]
-                flags, clears = self.level_n_actions(g.level, perm_cutoff=perm_cutoff)
-                if len(flags) > 0 or len(clears) > 0:
-                    self.perform_actions(flags, clears)
-                    g.level = 1
-                else:
-                    g.level += 1
-                actionable_subgraphs = sorted([g for g in self.number_subgraphs if g.level <= len(g.nodes) and g.level <= max_level], key=lambda x: x.level)
+            self.do_deductive_action(max_level=max_level)
 
             # if the game completed... somethin' went wrong
             if self.game.is_complete():
-                return
+                break
             
             if not to_completion:
-                return
+                break
             
             # if we're out of flags, we done!
             if self.game.flags == 0:
                 self.game.clear_unflagged()
-                return
+                break
 
             # still got flags...
             # determine whether to flag or yolo it and clear a rando
-            undiscovered_tiles = [i for i in range(self.game.N) if not (self.game.is_displayed(i) or i in self.full_graph.nodes)]
-
-            components = [g.nodes for g in self.number_subgraphs]
-            configurations = {}
-            for subgraph_indices in components:
-                # determine union of all adjacent uncleared tiles
-                mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["flagged"]]) for i in subgraph_indices]))
-                
-                # determine number of mines to try to apply to this subgraph
-                min_mine_count = min(max([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), self.game.flags)
-                max_mine_count = min(sum([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), len(mineable_tiles), self.game.flags)
-
-                valid_mine_perms = self.get_valid_mine_perms(mineable_tiles, min_mine_count, max_mine_count, perm_cutoff=perm_cutoff)
-                if len(valid_mine_perms) > 0:
-                    configurations[components.index(subgraph_indices)] = valid_mine_perms
-
-            min_mines = sum([min([len(mine_perm) for mine_perm in configs]) for configs in configurations.values()])
-            max_mines = sum([max([len(mine_perm) for mine_perm in configs]) for configs in configurations.values()])
-
-            min_residual_mine_count = max(self.game.flags - max_mines, 0)
-            max_residual_mine_count = max(self.game.flags - min_mines, 0)
-
-            min_resid_density = min_residual_mine_count / len(undiscovered_tiles) if len(undiscovered_tiles) > 0 else 1
-            max_resid_density = max_residual_mine_count / len(undiscovered_tiles) if len(undiscovered_tiles) > 0 else 1
-            initial_density = self.game.m / self.game.N
-
-            yolo_cutoff = yolo_cutoff or initial_density
-
-            discovered_tile_probs = {}
-            flags, clears = [], []
-            for subgraph_indices, configs in configurations.items():
-                counts = {}
-                for config in configs:
-                    for mine in config:
-                        if mine in counts.keys():
-                            counts[mine] += 1
-                        else:
-                            counts[mine] = 1
-                for k,v in counts.items():
-                    discovered_tile_probs[k] = v / len(configs)
-                    if discovered_tile_probs[k] == 0:
-                        flags.append(k)
-                    if discovered_tile_probs[k] == 1:
-                        clears.append(k)
-                
-            if len(flags) > 0 or len(clears) > 0:
-                self.perform_actions(flags, clears)
-                continue
-            
-            if len(discovered_tile_probs.items()) > 0:
-                min_tile, min_prob = sorted(discovered_tile_probs.items(), key=lambda x: x[1])[0]
-                if min_prob < yolo_cutoff or max_resid_density < yolo_cutoff:
-                    # YOLO it
-                    if min_prob < max_resid_density:
-                        self.perform_actions([], [min_tile])
-                        continue
-                    random_undiscovered = np.random.choice(undiscovered_tiles)
-                    self.perform_actions([], [random_undiscovered])
-                    continue
-            
-            # No YOLO, just flag
-            valid_flag_config = False
-            while not valid_flag_config:
-                tiles_to_flag = []
-                for subgraph_indices, configs in configurations.items():
-                    config = configs[np.random.randint(0, len(configs))]
-                    tiles_to_flag += config
-                tiles_to_flag = list(set(tiles_to_flag))
-                flag_delta = self.game.flags - len(tiles_to_flag)
-                if flag_delta > 0:
-                    boob_flap = list(np.random.choice(undiscovered_tiles, flag_delta, replace=False))
-                    tiles_to_flag += boob_flap
-
-                valid_flag_config = (len(tiles_to_flag) == self.game.flags)
-            
-            if len(tiles_to_flag) != len(set(tiles_to_flag)):
-                raise Exception("AHHHHHH WTF")
-
-            self.perform_actions(tiles_to_flag, [])
-            if self.game.flags != 0:
-                raise Exception("i don't even know")
-            self.game.clear_unflagged()
-            break
+            self.do_probable_actions(perm_cutoff=perm_cutoff, yolo_cutoff=yolo_cutoff)
                 
         foo = 1

@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 
 HEADER_SIZE = 35
-TILE_SIZE = 20
+TILE_SIZE = 35
 COLORS = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
 
 class MS_App(tk.Frame):
@@ -174,6 +174,7 @@ class MS_Field(tk.Canvas):
         self.bind("<Control-g>", lambda _: self.show_full_graph())
         self.bind("<Shift-G>", lambda _: self.show_number_graph())
         self.bind("n", lambda _: self.toggle_tile_ids())
+        self.bind("f", lambda _: self.foo())
         self.bind("1", lambda ev: self.full_auto_cheat(1) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(1) if bool(ev.state&4) else self.cheat(1))
         self.bind("2", lambda ev: self.full_auto_cheat(2) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(2) if bool(ev.state&4) else self.cheat(2))
         self.bind("3", lambda ev: self.full_auto_cheat(3) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(3) if bool(ev.state&4) else self.cheat(3))
@@ -295,9 +296,12 @@ class MS_Field(tk.Canvas):
     def full_auto_cheat(self, max_level):
         self.root.set_thinking(thinking=True)
         print("Auto-cheat starting (level {})".format(max_level))
-        progress_made = self.root.AI.auto_play(max_level, to_completion=True, yolo_cutoff=0.1)
+        progress_made = self.root.AI.auto_play(max_level, to_completion=True, yolo_cutoff=0.075)
         print("Auto-cheat complete ({})".format("progress made" if progress_made else "no progress"))
         self.root.set_thinking(thinking=False)
+
+    def foo(self):
+        self.root.AI.do_probable_actions(perm_cutoff=1e4, yolo_cutoff=0.075)
 
     def show_full_graph(self):
         self.root.AI.display_full_graph()
@@ -348,10 +352,11 @@ class MS_Field(tk.Canvas):
 def main():
     # Get args
     #x, y, m = 10, 10, 25
-    x, y, m = 125, 65, 1625
+    #x, y, m = 125, 65, 1625
     #x, y, m = 127, 66, 2000
-    #x, y, m = 20, 20, 80
+    x, y, m = 20, 20, 85
     #x, y, m = 40, 40, 320
+    #x, y, m = 50, 50, 500
     #x, y, m = 16, 30, 99
     #x, y, m = 381, 208, 15850
     try:
