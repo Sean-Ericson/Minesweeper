@@ -3,6 +3,7 @@
 from Minesweeper import *
 from MS_AI2 import MS_AI
 import tkinter as tk
+import numpy as np
 import sys
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -126,7 +127,7 @@ class MS_Header(tk.Frame):
 
     def display_score(self):
         game = self.root.game
-        score = game.final_score
+        score = game.final_score if not any([game.is_mined(i) and game.is_displayed(i) for i in range(game.N)]) else 0
         total = game.m
         self.flag_counter.configure(text="{} / {}".format(score, total))
 
@@ -171,6 +172,7 @@ class MS_Field(tk.Canvas):
         self.bind("<Return>", lambda _: self.root.button_click())
         self.bind("r", lambda _: self.root.manual_reset())
         self.bind("s", lambda _: self.root.first_move())
+        self.bind("l", lambda _: self.bar())
         self.bind("<Control-g>", lambda _: self.show_full_graph())
         self.bind("<Shift-G>", lambda _: self.show_number_graph())
         self.bind("n", lambda _: self.toggle_tile_ids())
@@ -190,6 +192,17 @@ class MS_Field(tk.Canvas):
         self.bind("<Control-Down>", lambda _: self.decrement_tile_size())
         self.new_field()
         return
+    
+    def bar(self):
+        scores = []
+        game = self.root.game
+        while True:
+            self.full_auto_cheat(4)
+            print(game.final_score)
+            scores.append(game.final_score)
+            print("avg: {}".format(np.mean(scores)))
+            print()
+            game.reset()
     
     def increment_tile_size(self):
         self.tile_size += 1
@@ -296,7 +309,7 @@ class MS_Field(tk.Canvas):
     def full_auto_cheat(self, max_level):
         self.root.set_thinking(thinking=True)
         print("Auto-cheat starting (level {})".format(max_level))
-        progress_made = self.root.AI.auto_play(max_level, to_completion=True, yolo_cutoff=0.075)
+        progress_made = self.root.AI.auto_play(max_level, to_completion=True, yolo_cutoff=0.01)
         print("Auto-cheat complete ({})".format("progress made" if progress_made else "no progress"))
         self.root.set_thinking(thinking=False)
 

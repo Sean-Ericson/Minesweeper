@@ -456,7 +456,6 @@ class MS_AI:
             if flag_delta > 0:
                 boob_flap = list(np.random.choice(undiscovered_tiles, flag_delta, replace=False))
                 tiles_to_flag += boob_flap
-
             valid_flag_config = (len(tiles_to_flag) == self.game.flags)
         
         if len(tiles_to_flag) != len(set(tiles_to_flag)):
