@@ -319,48 +319,135 @@ class MS_AI:
             mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["flagged"]]) for i in subgraph_indices]))
             
             # determine number of mines to try to apply to this subgraph
-            min_mine_count = min(max([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), self.game.flags)
-            max_mine_count = min(sum([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), len(mineable_tiles), self.game.flags)
+            #min_mine_count, max_mine_count = self.determine_min_max_mines(subgraph_indices, mineable_tiles)
 
-            valid_perms = self.get_valid_mine_perms(mineable_tiles, min_mine_count, max_mine_count, perm_cutoff=perm_cutoff)
+            valid_perms = [perm for perm in self.get_valid_mine_perms3(subgraph_indices, mineable_tiles)]
+            if len(valid_perms) == 0:
+                continue
 
             # add to flag/clear lists
-            for i in range(len(mineable_tiles)):
-                if all([mineable_tiles[i] in perm for perm in valid_perms]) and not mineable_tiles[i] in tiles_to_flag:
-                    tiles_to_flag.append(mineable_tiles[i])
-                if all([not mineable_tiles[i] in perm for perm in valid_perms]) and not mineable_tiles[i] in tiles_to_display:
-                    tiles_to_display.append(mineable_tiles[i])
+            for mineable_tile in mineable_tiles:
+                if all([mineable_tile in perm for perm in valid_perms]) and not mineable_tile in tiles_to_flag:
+                    tiles_to_flag.append(mineable_tile)
+                if all([not mineable_tile in perm for perm in valid_perms]) and not mineable_tile in tiles_to_display:
+                    tiles_to_display.append(mineable_tile)
         
-        return tiles_to_flag, tiles_to_display
+        return tiles_to_flag, tiles_to_display    
+        
+    def get_valid_mine_perms2(self, number_tiles, mineable_tiles, current_mines=None):
+        current_mines = current_mines or []
+        if len(number_tiles) == 0:
+            yield current_mines
+        else:
+            num_tile = number_tiles[0]
+            neighbor_tiles = [t for t in self.full_graph[num_tile] if t in mineable_tiles]
+            effective_count = self.number_graph.nodes[num_tile]["effective_count"] - len([x for x in current_mines if x in self.full_graph[num_tile]])
+            if effective_count < 0:
+                return
+            for nebs in combinations(neighbor_tiles, effective_count):
+                new_number_tiles = list(set(number_tiles) - set([num_tile]))
+                new_mineable_tiles = [x for x in mineable_tiles if not x in neighbor_tiles]
+                new_mines = current_mines + list(nebs)
+                yield from self.get_valid_mine_perms2(new_number_tiles, new_mineable_tiles, new_mines)
 
-    def get_valid_mine_perms(self, mineable_tiles, min_mine_count, max_mine_count, perm_cutoff=None):
-        mineable_tile_count = len(mineable_tiles)
-        number_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if id in self.number_graph.nodes and not self.full_graph.nodes[id]["flagged"]]) for i in mineable_tiles]))
-        valid_perms = []
-        for mine_count in range(min_mine_count, max_mine_count+1):
-            perm_count = math.comb(mineable_tile_count, mine_count)
-            if perm_cutoff is None or perm_count < perm_cutoff:
-                perm_gen = lambda: generate_mine_perms(mineable_tile_count, mine_count)
-            else:
-                perm_gen = lambda: sample_mine_perms(mineable_tile_count, mine_count, perm_cutoff)
-            for perm in perm_gen():
-                valid = True
+    def get_valid_mine_perms3(self, number_tiles, mineable_tiles, current_mines=None):
+        current_mines = current_mines or []
+        if isinstance(number_tiles, list):
+            number_tiles = {i: self.full_graph.nodes[i]['effective_count'] for i in number_tiles}
+        if len(mineable_tiles) == 0 or len(number_tiles) == 0:
+            yield current_mines
+        else:
+            num_tile = list(number_tiles.keys())[0]
+            neighbor_tiles = [t for t in self.full_graph[num_tile] if t in mineable_tiles]
+            for mines in combinations(neighbor_tiles, number_tiles[num_tile]):
+                tmp = {i: number_tiles[i] - len([j for j in mines if j in self.full_graph[i]]) for i in number_tiles if not i == num_tile}
+                if any([v < 0 for v in tmp.values()]):
+                    continue
+                new_number_tiles = {k:v for k,v in tmp.items() if v > 0}
+                new_mineable_tiles = [x for x in mineable_tiles if not x in neighbor_tiles]
+                new_mines = current_mines + list(mines)
+                yield from self.get_valid_mine_perms3(new_number_tiles, new_mineable_tiles, new_mines)
+
+    def random_valid_mine_perm(self, number_tiles, mineable_tiles):
+        mineable_tiles = list(mineable_tiles)
+        while True:
+            num_tiles = {i: self.full_graph.nodes[i]['effective_count'] for i in number_tiles}
+            mines = []
+            while len(num_tiles) > 0 and len(mineable_tiles) > 0 and len(mines) <= self.game.flags:
+                num_tile = np.random.choice(list(num_tiles.keys()))
+                neighbor_tiles = [t for t in self.full_graph[num_tile] if t in mineable_tiles]
+                if num_tiles[num_tile] > len(neighbor_tiles):
+                    break
+                combos = list(combinations(neighbor_tiles, num_tiles[num_tile]))
+                m = combos[np.random.randint(len(combos))]
+                tmp = {i: num_tiles[i] - len([j for j in m if j in self.full_graph[i]]) for i in num_tiles if not i == num_tile}
+                if any([v < 0 for v in tmp.values()]):
+                    continue
+                num_tiles = {k:v for k,v in tmp.items() if v > 0}
+                mines += list(m)
+                mineable_tiles = [x for x in mineable_tiles if not x in neighbor_tiles]
+            
+            effective_counts = [self.full_graph.nodes[i]['effective_count'] - len([j for j in mines if j in self.full_graph[i]]) for i in num_tiles]
+            if all([c == 0 for c in effective_counts]):
+                return mines
+
+    def sample_valid_mine_perms2(self, number_tiles, mineable_tiles, samples):
+        return [self.random_valid_mine_perm(number_tiles, mineable_tiles) for _ in range(samples)]
+
+    def sample_valid_mine_perms(self, number_tiles, mineable_tiles, min_mine_count, max_mine_count, num_samples=1000):
+        samples = []
+        i = 0
+        while len(samples) < num_samples:
+            i += 1
+            numz = list(number_tiles)
+            valid_sample = True
+            sample = []
+            while len(numz) > 0 and len(sample) < self.game.flags:
+                np.random.shuffle(numz)
+                num = numz.pop()
+                neighbor_tiles = [t for t in self.full_graph[num] if t in mineable_tiles]
+                effective_count = self.number_graph.nodes[num]["effective_count"] - len([x for x in sample if x in self.full_graph[num]])
+                if effective_count <= 0:
+                    valid_sample = False
+                    break
+                combs = list(combinations(neighbor_tiles, min(effective_count, self.game.flags)))
+                nebs = combs[np.random.randint(len(combs))]
+                sample += list(nebs)
+                sample = list(set(sample))
+
                 for num_tile in number_tiles:
-                    unflagged_neighbors = [id for id in self.full_graph[num_tile] if not self.full_graph.nodes[id]["flagged"]]
-                    neighbor_mines = len([id for id in unflagged_neighbors if id in mineable_tiles and perm[mineable_tiles.index(id)] == 1])
-                    if set(unflagged_neighbors).issubset(mineable_tiles):
-                        if self.number_graph.nodes[num_tile]["effective_count"] != neighbor_mines:
-                            valid = False
+                    neighbor_mine_count = len([id for id in self.full_graph[num_tile] if id in sample])
+                    if len(numz) > 0:
+                        if self.number_graph.nodes[num_tile]["effective_count"] < neighbor_mine_count:
+                            valid_sample = False
                             break
                     else:
-                        if self.number_graph.nodes[num_tile]["effective_count"] < neighbor_mines:
-                            valid = False
+                        if self.number_graph.nodes[num_tile]["effective_count"] != neighbor_mine_count:
+                            valid_sample = False
                             break
-                if valid:
-                    valid_perms.append(perm)
+            
+            if valid_sample:
+                samples.append(sample)
+        print("sample prop: {}".format(i/num_samples))
+        return samples
 
-        return [[id for id in mineable_tiles if perm[mineable_tiles.index(id)]] for perm in valid_perms]        
-        
+                
+        samples = []
+        while len(samples) < num_samples:
+            num_mines = np.random.randint(min_mine_count, max_mine_count+1)
+            perm = (len(mineable_tiles) - num_mines)*[False] + num_mines*[True]
+            np.random.shuffle(perm)
+            valid = True
+            for num_tile in number_tiles:
+                neighbor_mine_count = len([id for id in self.full_graph[num_tile] if id in mineable_tiles and perm[mineable_tiles.index(id)]])
+                if self.number_graph.nodes[num_tile]["effective_count"] != neighbor_mine_count:
+                    valid = False
+                    break
+            if valid:
+                far = "var"
+                samples.append([id for id in mineable_tiles if perm[mineable_tiles.index(id)]])
+
+        return samples
 
     def perform_actions(self, flags, clears):
         for id in flags:
@@ -383,9 +470,30 @@ class MS_AI:
                 g.level += 1
             actionable_subgraphs = sorted([g for g in self.number_subgraphs if g.level <= len(g.nodes) and g.level <= max_level], key=lambda x: x.level)
 
-    def do_probable_actions(self, perm_cutoff, yolo_cutoff):
+    def determine_min_max_mines(self, number_tiles, mineable_tiles):
+        """ des_num_tiles = sorted(list(number_tiles), key=lambda x: self.number_graph.nodes[x]["effective_count"], reverse=True)
+
+        number_subset = []
+        covered_tiles = []
+        while not set(covered_tiles) == set(mineable_tiles):
+            next_num_tile = des_num_tiles.pop()
+            if set(self.full_graph[next_num_tile]).issubset(set(covered_tiles)):
+                continue
+            number_subset.append(next_num_tile)
+            covered_tiles += self.full_graph[next_num_tile]
+        
+        min_mine_count = min(max([self.number_graph.nodes[i]["effective_count"] for i in number_tiles]), self.game.flags)
+        max_mine_count = min(sum([self.number_graph.nodes[i]["effective_count"] for i in number_subset]), self.game.flags) """
+
+        min_mine_count = min(max([self.number_graph.nodes[i]["effective_count"] for i in number_tiles]), self.game.flags)
+        max_mine_count = min(sum([self.number_graph.nodes[i]["effective_count"] for i in number_tiles]), len(mineable_tiles), self.game.flags)
+
+        return min_mine_count, max_mine_count
+
+    def do_probable_actions(self, samples, yolo_cutoff):
         undiscovered_tiles = [i for i in range(self.game.N) if not (self.game.is_displayed(i) or i in self.full_graph.nodes)]
 
+        # sample possible mine configurations
         components = [g.nodes for g in self.number_subgraphs]
         configurations = {}
         for subgraph_indices in components:
@@ -393,10 +501,10 @@ class MS_AI:
             mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["flagged"]]) for i in subgraph_indices]))
             
             # determine number of mines to try to apply to this subgraph
-            min_mine_count = min(max([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), self.game.flags)
-            max_mine_count = min(sum([self.number_graph.nodes[i]["effective_count"] for i in subgraph_indices]), len(mineable_tiles), self.game.flags)
+            #min_mine_count, max_mine_count = self.determine_min_max_mines(subgraph_indices, mineable_tiles)
 
-            valid_mine_perms = self.get_valid_mine_perms(mineable_tiles, min_mine_count, max_mine_count, perm_cutoff=perm_cutoff)
+            #valid_mine_perms = self.sample_valid_mine_perms(subgraph_indices, mineable_tiles, min_mine_count, max_mine_count, samples)
+            valid_mine_perms = self.sample_valid_mine_perms2(subgraph_indices, mineable_tiles, samples)
             if len(valid_mine_perms) > 0:
                 configurations[components.index(subgraph_indices)] = valid_mine_perms
 
@@ -413,7 +521,6 @@ class MS_AI:
         yolo_cutoff = yolo_cutoff or initial_density
 
         discovered_tile_probs = {}
-        flags, clears = [], []
         for subgraph_indices, configs in configurations.items():
             counts = {}
             for config in configs:
@@ -424,17 +531,11 @@ class MS_AI:
                         counts[mine] = 1
             for k,v in counts.items():
                 discovered_tile_probs[k] = v / len(configs)
-                if discovered_tile_probs[k] == 0:
-                    flags.append(k)
-                if discovered_tile_probs[k] == 1:
-                    clears.append(k)
-            
-        if len(flags) > 0 or len(clears) > 0:
-            self.perform_actions(flags, clears)
-            return
         
         if len(discovered_tile_probs.items()) > 0:
             min_tile, min_prob = sorted(discovered_tile_probs.items(), key=lambda x: x[1])[0]
+            print("Min prob: ", min_prob)
+            print("Max resid density: ", max_resid_density)
             if min_prob < yolo_cutoff or max_resid_density < yolo_cutoff:
                 # YOLO it
                 if min_prob < max_resid_density:
@@ -443,19 +544,26 @@ class MS_AI:
                 random_undiscovered = np.random.choice(undiscovered_tiles)
                 self.perform_actions([], [random_undiscovered])
                 return
-        
+            
         # No YOLO, just flag
         valid_flag_config = False
         while not valid_flag_config:
             tiles_to_flag = []
-            for subgraph_indices, configs in configurations.items():
-                config = configs[np.random.randint(0, len(configs))]
-                tiles_to_flag += config
+            if any([x for x in configurations.values() if len(x) > 0]):
+                for subgraph_indices, configs in configurations.items():
+                    if len(configs) == 0:
+                        continue
+                    max_tile, _ = sorted([(tile, prob) for tile, prob in discovered_tile_probs.items() if tile in list(reduce(lambda x,y: set(x).union(set(y)), [self.full_graph[i] for i in components[subgraph_indices]]))], key=lambda x: x[1])[-1]
+                    configs_with_max_tile = [c for c in configs if max_tile in c]
+                    config = configs_with_max_tile[np.random.randint(0, len(configs_with_max_tile))]
+                    tiles_to_flag += config
             tiles_to_flag = list(set(tiles_to_flag))
             flag_delta = self.game.flags - len(tiles_to_flag)
             if flag_delta > 0:
-                boob_flap = list(np.random.choice(undiscovered_tiles, flag_delta, replace=False))
-                tiles_to_flag += boob_flap
+                if flag_delta > len(undiscovered_tiles):
+                    continue
+                random_undiscovered_tiles = list(np.random.choice(undiscovered_tiles, flag_delta, replace=False))
+                tiles_to_flag += random_undiscovered_tiles
             valid_flag_config = (len(tiles_to_flag) == self.game.flags)
         
         if len(tiles_to_flag) != len(set(tiles_to_flag)):
@@ -466,7 +574,7 @@ class MS_AI:
             raise Exception("i don't even know")
         self.game.clear_unflagged()
 
-    def auto_play(self, max_level, to_completion=False, perm_cutoff=1e4, yolo_cutoff=None):
+    def auto_play(self, max_level, to_completion=False, samples=1e4, yolo_cutoff=None):
         # If the game's already over, bounce
         if self.game.is_complete():
             return
@@ -493,6 +601,6 @@ class MS_AI:
 
             # still got flags...
             # determine whether to flag or yolo it and clear a rando
-            self.do_probable_actions(perm_cutoff=perm_cutoff, yolo_cutoff=yolo_cutoff)
+            self.do_probable_actions(samples=samples, yolo_cutoff=yolo_cutoff)
                 
         foo = 1

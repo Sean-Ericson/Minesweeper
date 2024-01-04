@@ -394,6 +394,7 @@ class MS_Game2:
         self.flags = m
         self.status = MS_Status.READY
         self.start_time = 0
+        self.detonated = False
         self.game_won = False
         self.game_lost = False
         self.total_time = 0
@@ -444,6 +445,7 @@ class MS_Game2:
         self.flags = self.m
         self.status = MS_Status.READY
         self.start_time = 0
+        self.detonated = False
         self.game_won = False
         self.game_lost = False
         self.total_time = 0
@@ -599,6 +601,7 @@ class MS_Game2:
 
         # If you've is_cleared a mine, bummer
         if self.is_mined(n):
+            self.detonated = True
             self.reveal(n)
             self.call_handlers(self.TileDisplayHandlers, ([self.field[n]]))
             self.set_game_complete(game_won=False)
