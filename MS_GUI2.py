@@ -8,7 +8,7 @@ import sys
 import matplotlib.pyplot as plt
 import networkx as nx
 
-TILE_SIZE = 45
+TILE_SIZE = 15
 COLORS = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
 
 class MS_App(tk.Frame):
@@ -345,6 +345,16 @@ class MS_Field(tk.Canvas):
         if game.is_ready():
             game.start_game()
 
+        # check for click on number
+        tile = game.field[t]
+        if tile.displayed:
+            nebs = game.field.neighbors(t)
+            flag_count = len([neb for neb in nebs if game.field[neb].flagged])
+            unflagged_nebs = [neb for neb in nebs if not game.field[neb].displayed and not game.field[neb].flagged]
+            if tile.mine_count == flag_count:
+                for neb in unflagged_nebs:
+                    game.clear(neb)
+
         # clear tile
         game.clear(t)
 
@@ -362,9 +372,6 @@ class MS_Field(tk.Canvas):
 
         if (t < 0) or (t > (game.N - 1)):
             raise Exception("bad click?")
-        
-        if game.is_ready():
-            game.start_game()
 
         # Flag tile in game
         game.flag(t)
