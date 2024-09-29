@@ -4,17 +4,140 @@ from Minesweeper import *
 from MS_AI2 import MS_AI
 import tkinter as tk
 import numpy as np
-import sys
+import os
 import matplotlib.pyplot as plt
 import networkx as nx
 
 TILE_SIZE = 15
 COLORS = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
 
-class MS_App(tk.Frame):
+class MS_MainScreen(tk.Frame):
+    def __init__(self, configFilename):
+        root = tk.Tk()
+        root.resizable(False, False)
+        root.iconbitmap("mine.ico")
+        root.title("Minesweeper")
+
+        self.root = root
+        self.configFilename = configFilename
+        self.config = {}
+        self.gameWindow = None
+        self.settingsWindow = None
+
+        super().__init__(root, bd=10)
+        self.pack()
+
+        # Menu bar
+        menubar = tk.Menu(root)
+        menubar.add_command(label="Settings", command=self.open_settings)
+        root.config(menu=menubar)
+
+        # Title
+        self.title = tk.Label(self, text="Minesweeper", font=("MS Serif", 32))
+        self.title.grid(row=0, column=0, columnspan=2, pady=(0, 10))
+
+        # X/Y/M Labels
+        xymFont = ("MS Serif", 14)
+        self.xLabel = tk.Label(self, text="X:", font=xymFont)
+        self.yLabel = tk.Label(self, text="Y:", font=xymFont)
+        self.mLabel = tk.Label(self, text="Mines:", font=xymFont)
+        self.xLabel.grid(row=1, column=0, sticky=tk.E)
+        self.yLabel.grid(row=2, column=0, sticky=tk.E)
+        self.mLabel.grid(row=3, column=0, sticky=tk.E)
+
+        # X/Y/M Entry
+        xyValid = (self.register(lambda s: self._xyValid(s)), '%P')
+        mValid = (self.register(lambda s: self._mValid(s), '%P'))
+        self.x, self.y, self.m = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        self.x.set(10)
+        self.y.set(10)
+        self.m.set(20)
+        self.xEntry = tk.Entry(self, width=10, textvariable=self.x, validate='key', validatecommand=xyValid)
+        self.yEntry = tk.Entry(self, width=10, textvariable=self.y, validate='key', validatecommand=xyValid)
+        self.mEntry = tk.Entry(self, width=10, textvariable=self.m, validate='key', validatecommand=mValid)
+        self.xEntry.grid(row=1, column=1, sticky=tk.W)
+        self.yEntry.grid(row=2, column=1, sticky=tk.W)
+        self.mEntry.grid(row=3, column=1, sticky=tk.W)
+        self.xEntry.bind("<KeyRelease>", self._xyChange)
+        self.yEntry.bind("<KeyRelease>", self._xyChange)
+
+        # Start Button
+        self.startButton = tk.Button(self, width=12, text="Start", font=("MS Serif", 18), command=self.start_game)
+        self.startButton.grid(row=4, column=0, columnspan=2, sticky=tk.S, pady=(10, 0))
+
+        root.mainloop()
+    
+    def _xyValid(self, s):
+        return s == "" or s.isdigit()
+    
+    def _mValid(self, s):
+        self._xyValid(s) and (0 if s=="" else int(s)) < (self.X() * self.Y())
+    
+    def _xyChange(self, ev):
+        if self.M() >= self.X() * self.Y():
+            self.m.set(self.X() * self.Y() - 1)
+        
+    def X(self):
+        return int(self.x.get())
+    def Y(self):
+        return int(self.y.get())
+    def M(self):
+        return int(self.m.get())
+    
+    def open_settings(self):
+        if self.settingsWindow:
+            self.settingsWindow.destroy()
+        self.settingsWindow = tk.Toplevel(self)
+        self.settingsWindow.transient(self)
+        self.settingsWindow.title("Settings")
+        self.settingsWindow.iconbitmap("mine.ico")
+
+        MS_SettingWindow(self.settingsWindow, self.configFilename)
+        self.settingsWindow.mainloop()
+
+    def start_game(self):
+        if self.gameWindow:
+            self.gameWindow.destroy()
+        self.gameWindow = tk.Toplevel(self)
+        self.gameWindow.resizable(True, True)
+        self.gameWindow.transient()
+        self.gameWindow.title("Minesweeper")
+        self.gameWindow.iconbitmap("mine.ico")
+
+        MS_GameWindow(self.gameWindow, self.X(), self.Y(), self.M())
+        self.gameWindow.mainloop()
+
+class MS_SettingWindow(tk.Frame):
+    def __init__(self, root, filename):
+        super().__init__(root, bd=10)
+        self.pack()
+        self.root = root
+
+        self.filename = filename
+        self.config = {}
+        with open(filename, 'r') as f:
+            self.config = {line.split("=")[0]: line.split("=")[1] for line in f.readlines()}
+
+        font = ("MS Serif", 14)
+        self.tileSizeLabel = tk.Label(self, text="Tile Size:", font=font)
+        self.tileSizeLabel.grid(row=0, column=0, sticky=tk.E)
+
+        self.tileSize = tk.StringVar()
+        self.tileSizeEntry = tk.Entry(self, width=7, textvariable=self.tileSize)
+        self.tileSizeEntry.grid(row=0, column=1, sticky=tk.W)
+        self.tileSize.set(self.config["tileSize"])
+
+        self.saveButton = tk.Button(self, text="Save", font=("MS Serif", 14), command=self.save)
+
+    def save(self):
+        with open(self.filename, 'w') as f:
+            for k,v in self.config.items():
+                f.wrtie("{}={}\n".format(k, v))
+        
+
+class MS_GameWindow(tk.Frame):
     def __init__(self, root, x, y, mines, *args, **kwargs):
         super().__init__(root, *args, **kwargs)
-        root.iconbitmap("mine.ico")
         self.root = root
 
         self.x = x
@@ -34,6 +157,7 @@ class MS_App(tk.Frame):
 
         self.header.grid(row=0, column=0, sticky=tk.W+tk.N+tk.E)
         self.minefield.grid(row=1, column=0, sticky=tk.W+tk.S+tk.E)
+        self.pack()
         root.after(5, self.update)
 
     def get_game(self):
@@ -100,7 +224,6 @@ class MS_App(tk.Frame):
 
     def set_thinking(self, thinking):
         self.header.update_thinking(thinking)
-        
 
 class MS_Header(tk.Frame):
     def __init__(self, root, *args, **kwargs):
@@ -153,7 +276,6 @@ class MS_Header(tk.Frame):
         self.button.configure(fg='black', text="Clear", state='disabled')
         self.update_flag_count(self.root.game.m)
         self.time_counter.configure(text='000')
-
 
 class MS_Field(tk.Canvas):
     def __init__(self, root, *args, **kwargs):
@@ -379,33 +501,21 @@ class MS_Field(tk.Canvas):
         # Update
         self.root.update()
 
+def write_default_config(filename):
+    config = {
+        "tileSize": 10
+    }
+    lines = ["{}={}".format(k,v) for k,v in config.items()]
+    with open(filename, 'w') as f:
+        f.writelines(lines)
+
 def main():
-    # Get args
-    #x, y, m = 10, 10, 25
-    #x, y, m = 125, 65, 1625
-    #x, y, m = 127, 66, 2000
-    #x, y, m = 20, 20, 85
-    #x, y, m = 40, 40, 320
-    #x, y, m = 50, 50, 600
-    #x, y, m = 16, 30, 99
-    #x, y, m = 381, 208, 15850
-    x, y, m = 53, 90, 925
-    try:
-        x,y,m = sys.argv[1:]
-    except:
-        try:
-            x, y, m = sys.argv[1].split(' ')
-        except:
-            pass
+    configFilename = "ms_config.txt"
+    if not os.path.isfile(configFilename):
+        write_default_config(configFilename)
 
-    # Create window
-    root = tk.Tk()
-    root.title("Minesweeper")
-
-    # Start game
-    app = MS_App(root, int(x), int(y), mines=int(m), bd=5)
-    app.pack()
-    root.mainloop()
+    # Start main screen
+    MS_MainScreen(configFilename)
 
 if __name__ == "__main__":
     main()
