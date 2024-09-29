@@ -362,6 +362,7 @@ class MS_Field:
             nebs = self.neighbors(i)
             mines = len([n for n in nebs if self.tiles[n].mined])
             self.tiles[i].mine_count = mines
+            self.tiles[i].effective_count = mines
             self.tiles[i].neighbors = nebs
 
     def neighbors(self, n):
@@ -369,6 +370,14 @@ class MS_Field:
         nbs = [self.tile_num(x+i, y+j) for i in [-1,0,1] for j in [-1,0,1] if self.is_valid_loc(x+i, y+j) and not (i == 0 and j == 0)]
         return nbs
     
+    def calc_effective_count(self, n):
+        tile = self.tiles[n]
+        if tile.mine_count is None:
+            return
+        if tile.effective_count is None:
+            tile.effective_count = tile.mine_count
+        tile.effective_count = tile.mine_count - len([x for x in self.neighbors(n) if self.tiles[x].flagged])
+
     def tile_num(self, x, y):
         return y*self.x + x
 
@@ -518,7 +527,7 @@ class MS_Game2:
         return self.field[n].displayed
 
     def is_number(self, n):
-        return self.field[n].displayed and self.field[n] > 0
+        return self.field[n].displayed and self.field[n].mine_count > 0
 
     def is_mined(self, n):
         return self.field[n].mined
@@ -561,6 +570,8 @@ class MS_Game2:
                 return
 
         tile.flagged = not tile.flagged
+        for neb in self.field.neighbors(n):
+            self.field.calc_effective_count(neb)
         self.call_handlers(self.TileFlagChangedHandlers, (n))
 
     # Set tile display value to hidden value

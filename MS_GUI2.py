@@ -8,7 +8,7 @@ import sys
 import matplotlib.pyplot as plt
 import networkx as nx
 
-TILE_SIZE = 45
+TILE_SIZE = 20
 COLORS = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
 
 class MS_App(tk.Frame):
@@ -264,7 +264,7 @@ class MS_Field(tk.Canvas):
         self.update()
 
     def place_flag(self, t):
-        self.itemconfigure(self.texts[t], text='F')
+        self.itemconfigure(self.texts[t], text='F', fill='red')
         self.update()
 
     def remove_flag(self, t):
@@ -345,8 +345,11 @@ class MS_Field(tk.Canvas):
         if game.is_ready():
             game.start_game()
 
-        # clear tile
-        game.clear(t)
+        if game.is_displayed(t) and game.is_number(t) and game.field[t].effective_count == 0:
+            for tile in game.field.neighbors(t):
+                game.clear(tile)
+        else:
+            game.clear(t)
 
         # Update
         self.root.update()
@@ -379,9 +382,10 @@ def main():
     #x, y, m = 127, 66, 2000
     #x, y, m = 20, 20, 85
     #x, y, m = 40, 40, 320
-    x, y, m = 50, 50, 600
+    #x, y, m = 50, 50, 600
     #x, y, m = 16, 30, 99
     #x, y, m = 381, 208, 15850
+    x, y, m = 53, 90, 925
     try:
         x,y,m = sys.argv[1:]
     except:
