@@ -393,7 +393,10 @@ def main():
     try:
         x,y,m = sys.argv[1:]
     except:
-        pass
+        try:
+            x, y, m = sys.argv[1].split(' ')
+        except:
+            pass
 
     # Create window
     root = tk.Tk()

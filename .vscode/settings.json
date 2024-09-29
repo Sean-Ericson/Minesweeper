@@ -2,5 +2,23 @@
     "cSpell.ignoreWords": [
         "unflagged"
     ],
-    "julia.environmentPath": "d:\\Programming\\GitHub\\Minesweeper"
+    "julia.environmentPath": "d:\\Programming\\GitHub\\Minesweeper",
+    "cSpell.words": [
+        "AHHHHHH",
+        "boof",
+        "borderwidth",
+        "foob",
+        "highlightthickness",
+        "horizontalalignment",
+        "lclick",
+        "ncols",
+        "networkx",
+        "nlist",
+        "probs",
+        "rando",
+        "rclick",
+        "somethin",
+        "subax",
+        "yolo"
+    ]
 }

@@ -399,12 +399,12 @@ class MS_AI:
         i = 0
         while len(samples) < num_samples:
             i += 1
-            numz = list(number_tiles)
+            nums = list(number_tiles)
             valid_sample = True
             sample = []
-            while len(numz) > 0 and len(sample) < self.game.flags:
-                np.random.shuffle(numz)
-                num = numz.pop()
+            while len(nums) > 0 and len(sample) < self.game.flags:
+                np.random.shuffle(nums)
+                num = nums.pop()
                 neighbor_tiles = [t for t in self.full_graph[num] if t in mineable_tiles]
                 effective_count = self.number_graph.nodes[num]["effective_count"] - len([x for x in sample if x in self.full_graph[num]])
                 if effective_count <= 0:
@@ -417,7 +417,7 @@ class MS_AI:
 
                 for num_tile in number_tiles:
                     neighbor_mine_count = len([id for id in self.full_graph[num_tile] if id in sample])
-                    if len(numz) > 0:
+                    if len(nums) > 0:
                         if self.number_graph.nodes[num_tile]["effective_count"] < neighbor_mine_count:
                             valid_sample = False
                             break
@@ -514,8 +514,8 @@ class MS_AI:
         min_residual_mine_count = max(self.game.flags - max_mines, 0)
         max_residual_mine_count = max(self.game.flags - min_mines, 0)
 
-        min_resid_density = min_residual_mine_count / len(undiscovered_tiles) if len(undiscovered_tiles) > 0 else 1
-        max_resid_density = max_residual_mine_count / len(undiscovered_tiles) if len(undiscovered_tiles) > 0 else 1
+        min_residual_density = min_residual_mine_count / len(undiscovered_tiles) if len(undiscovered_tiles) > 0 else 1
+        max_residual_density = max_residual_mine_count / len(undiscovered_tiles) if len(undiscovered_tiles) > 0 else 1
         initial_density = self.game.m / self.game.N
 
         yolo_cutoff = yolo_cutoff or initial_density
@@ -535,10 +535,10 @@ class MS_AI:
         if len(discovered_tile_probs.items()) > 0:
             min_tile, min_prob = sorted(discovered_tile_probs.items(), key=lambda x: x[1])[0]
             print("Min prob: ", min_prob)
-            print("Max resid density: ", max_resid_density)
-            if min_prob < yolo_cutoff or max_resid_density < yolo_cutoff:
+            print("Max residual density: ", max_residual_density)
+            if min_prob < yolo_cutoff or max_residual_density < yolo_cutoff:
                 # YOLO it
-                if min_prob < max_resid_density:
+                if min_prob < max_residual_density:
                     self.perform_actions([], [min_tile])
                     return
                 random_undiscovered = np.random.choice(undiscovered_tiles)
