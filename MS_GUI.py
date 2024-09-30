@@ -14,22 +14,15 @@ class MS_Settings:
     def __init__(self):
         self.tile_size = MS_Settings.DefaultTileSize 
 
-class MS_MainScreen(tk.Frame):
-    def __init__(self, root):
+class MS_MainFrame(tk.Frame):
+    def __init__(self, root, settings: MS_Settings):
 
         self.root = root
-        self.configFilename = configFilename
-        self.config = {}
+        self.settings = settings
         self.gameWindow = None
         self.settingsWindow = None
 
         super().__init__(root, bd=10)
-        self.pack()
-
-        # Menu bar
-        menubar = tk.Menu(root)
-        menubar.add_command(label="Settings", command=self.open_settings)
-        root.config(menu=menubar)
 
         # Title
         self.title = tk.Label(self, text="Minesweeper", font=("MS Serif", 32))
@@ -63,8 +56,6 @@ class MS_MainScreen(tk.Frame):
         # Start Button
         self.startButton = tk.Button(self, width=12, text="Start", font=("MS Serif", 18), command=self.start_game)
         self.startButton.grid(row=4, column=0, columnspan=2, sticky=tk.S, pady=(10, 0))
-
-        root.mainloop()
     
     def _xyValid(self, s):
         return s == "" or s.isdigit()
@@ -82,17 +73,6 @@ class MS_MainScreen(tk.Frame):
         return int(self.y.get())
     def M(self):
         return int(self.m.get())
-    
-    def open_settings(self):
-        if self.settingsWindow:
-            self.settingsWindow.destroy()
-        self.settingsWindow = tk.Toplevel(self)
-        self.settingsWindow.transient(self)
-        self.settingsWindow.title("Settings")
-        self.settingsWindow.iconbitmap("resources\\mine.ico")
-
-        MS_SettingWindow(self.settingsWindow, self.configFilename)
-        self.settingsWindow.mainloop()
 
     def start_game(self):
         if self.gameWindow:
@@ -103,37 +83,37 @@ class MS_MainScreen(tk.Frame):
         self.gameWindow.title("Minesweeper")
         self.gameWindow.iconbitmap("resources\\mine.ico")
 
-        MS_GameWindow(self.gameWindow, self.X(), self.Y(), self.M(), self.config["tileSize"])
+        MS_GameFrame(self.gameWindow, self.X(), self.Y(), self.M(), self.settings.tile_size)
         self.gameWindow.mainloop()
 
-class MS_SettingWindow(tk.Frame):
-    def __init__(self, root, filename):
+class MS_SettingsFrame(tk.Frame):
+    def __init__(self, root, settings: MS_Settings):
         super().__init__(root, bd=10)
         self.pack()
         self.root = root
+        self.settings = settings
 
-        self.filename = filename
-        self.config = {}
-        with open(filename, 'r') as f:
-            self.config = {line.split("=")[0]: line.split("=")[1] for line in f.readlines()}
+        self.e_SettingsUpdate = EventSource()
 
         font = ("MS Serif", 14)
         self.tileSizeLabel = tk.Label(self, text="Tile Size:", font=font)
         self.tileSizeLabel.grid(row=0, column=0, sticky=tk.E)
 
         self.tileSize = tk.StringVar()
-        self.tileSizeEntry = tk.Entry(self, width=7, textvariable=self.tileSize)
+        self.tileSizeEntry = tk.Entry(self, width=7, textvariable=self.tileSize, validate='key', validatecommand=self._validate_tile_size)
         self.tileSizeEntry.grid(row=0, column=1, sticky=tk.W)
-        self.tileSize.set(self.config["tileSize"])
+        self.tileSize.set(self.settings.tile_size)
 
-        self.saveButton = tk.Button(self, text="Save", font=("MS Serif", 14), command=self.save)
+        self.saveButton = tk.Button(self, text="Save", font=("MS Serif", 14), command=self.e_SettingsUpdate.emit(self.settings))
 
-    def save(self):
-        with open(self.filename, 'w') as f:
-            for k,v in self.config.items():
-                f.wrtie("{}={}\n".format(k, v))
+    def _validate_tile_size(self, s):
+        try:
+            self.settings.tile_size = int(self.tileSize.get())
+        except:
+            return False
+        return s == "" or s.isdigit()
         
-class MS_GameWindow(tk.Frame):
+class MS_GameFrame(tk.Frame):
     def __init__(self, root, x, y, mines, tile_size, *args, **kwargs):
         super().__init__(root, *args, **kwargs)
         self.root = root
@@ -152,8 +132,8 @@ class MS_GameWindow(tk.Frame):
         self.AI = MS_AI(self.game)
 
         # Init window components
-        self.header = MS_Header(self)
-        self.minefield = MS_Field(self, tile_size=tile_size)
+        self.header = MS_GameFrame_Header(self)
+        self.minefield = MS_GameFrame_Field(self, tile_size=tile_size)
 
         # Layout window components
         self.header.grid(row=0, column=0, sticky=tk.W+tk.N+tk.E)
@@ -227,7 +207,7 @@ class MS_GameWindow(tk.Frame):
     def set_thinking(self, thinking):
         self.header.update_thinking(thinking)
 
-class MS_Header(tk.Frame):
+class MS_GameFrame_Header(tk.Frame):
     def __init__(self, root, *args, **kwargs):
         super().__init__(root, *args, **kwargs)
         self.configure(bd=5)
@@ -279,7 +259,7 @@ class MS_Header(tk.Frame):
         self.update_flag_count(self.root.game.m)
         self.time_counter.configure(text='000')
 
-class MS_Field(tk.Canvas):
+class MS_GameFrame_Field(tk.Canvas):
     NumberColors = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
     
     def __init__(self, root, tile_size, *args, **kwargs):
@@ -490,30 +470,58 @@ class MS_Field(tk.Canvas):
         # Update
         self.root.update()
 
-def write_default_config(filename):
-    config = {
-        "tileSize": 10
-    }
-    lines = ["{}={}".format(k,v) for k,v in config.items()]
-    with open(filename, 'w') as f:
-        f.writelines(lines)
+def open_settings_window():
+    if settings_window:
+        settings_window.destroy()
+    settings_window = tk.Toplevel(main_window)
+    settings_window.transient(main_window)
+    settings_window.title("Settings")
+    settings_window.iconbitmap("resources\\mine.ico")
+
+    settings_frame = MS_SettingsFrame(settings_window, settings)
+    settings_frame.e_SettingsUpdate += onSettingsUpdate
+    settings_frame.pack()
+    settings_window.mainloop()
+
+def onSettingsUpdate(new_settings):
+    settings = new_settings
+    save_settings()
+
+def get_settings():
+    with open(SETTINGS_FILE, 'r') as f:
+        return pickle.load(f)
+    
+def save_settings(settings=None):
+    with open(SETTINGS_FILE, 'w') as f:
+        pickle.dump(settings, f)
+
+settings = MS_Settings()
+settings_window = None
+main_window = None
 
 def main():
-    settings = MS_Settings()
     try:
-        with open(SETTINGS_FILE, 'r') as f:
-            settings = pickle.load(f)
+        settings = get_settings()
     except:
         print("Settings file {} could not be loaded".format(SETTINGS_FILE))
 
     
-        root = tk.Tk()
-        root.resizable(False, False)
-        root.iconbitmap("resources\\mine.ico")
-        root.title("Minesweeper")
+    main_window = tk.Tk()
+    main_window.resizable(False, False)
+    main_window.iconbitmap("resources\\mine.ico")
+    main_window.title("Minesweeper")
+
+    # Menu bar
+    menubar = tk.Menu(main_window)
+    menubar.add_command(label="Settings", command=open_settings_window)
+    main_window.config(menu=menubar)
 
     # Start main screen
-    MS_MainScreen(configFilename)
+    main_frame = MS_MainFrame(main_window, settings)
+    main_frame.pack()
+
+    main_window.mainloop()
+    
 
 if __name__ == "__main__":
     main()

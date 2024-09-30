@@ -36,7 +36,7 @@ class MS_Tile:
         self.id = id
         self.neighbors = []
 
-class MS_Field:
+class MS_GameFrame_Field:
     """
     A minefield in a Minesweeper game.
     """
@@ -119,7 +119,7 @@ class MS_Game:
         self.init_members()
 
         # Initialize field
-        self.field = MS_Field(x, y, m)
+        self.field = MS_GameFrame_Field(x, y, m)
         self.field.initialize()
 
         # Set up events
