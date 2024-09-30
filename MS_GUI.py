@@ -1,70 +1,199 @@
 #Minesweeper GUI by Sean Ericson
 
-import Minesweeper
-import MS_AI
+from Minesweeper import *
+from MS_AI import MS_AI
 import tkinter as tk
-import sys
-import time
+import pickle
+import os
 
-HEADER_SIZE = 35
-TILE_SIZE = 20
-COLORS = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
+SETTINGS_FILE = "ms_settings.pk"
 
-class MS_App(tk.Frame):
-    def __init__(self, root, x, y, mines, *args, **kwargs):
-        super().__init__(root, *args, **kwargs)
-        root.iconbitmap("mine.ico")
+class MS_Settings:
+    DefaultTileSize = 10
+    
+    def __init__(self):
+        self.tile_size = MS_Settings.DefaultTileSize 
+
+class MS_MainScreen(tk.Frame):
+    def __init__(self, root):
+
+        self.root = root
+        self.configFilename = configFilename
+        self.config = {}
+        self.gameWindow = None
+        self.settingsWindow = None
+
+        super().__init__(root, bd=10)
+        self.pack()
+
+        # Menu bar
+        menubar = tk.Menu(root)
+        menubar.add_command(label="Settings", command=self.open_settings)
+        root.config(menu=menubar)
+
+        # Title
+        self.title = tk.Label(self, text="Minesweeper", font=("MS Serif", 32))
+        self.title.grid(row=0, column=0, columnspan=2, pady=(0, 10))
+
+        # X/Y/M Labels
+        xymFont = ("MS Serif", 14)
+        self.xLabel = tk.Label(self, text="X:", font=xymFont)
+        self.yLabel = tk.Label(self, text="Y:", font=xymFont)
+        self.mLabel = tk.Label(self, text="Mines:", font=xymFont)
+        self.xLabel.grid(row=1, column=0, sticky=tk.E)
+        self.yLabel.grid(row=2, column=0, sticky=tk.E)
+        self.mLabel.grid(row=3, column=0, sticky=tk.E)
+
+        # X/Y/M Entry
+        xyValid = (self.register(lambda s: self._xyValid(s)), '%P')
+        mValid = (self.register(lambda s: self._mValid(s), '%P'))
+        self.x, self.y, self.m = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        self.x.set(10)
+        self.y.set(10)
+        self.m.set(20)
+        self.xEntry = tk.Entry(self, width=10, textvariable=self.x, validate='key', validatecommand=xyValid)
+        self.yEntry = tk.Entry(self, width=10, textvariable=self.y, validate='key', validatecommand=xyValid)
+        self.mEntry = tk.Entry(self, width=10, textvariable=self.m, validate='key', validatecommand=mValid)
+        self.xEntry.grid(row=1, column=1, sticky=tk.W)
+        self.yEntry.grid(row=2, column=1, sticky=tk.W)
+        self.mEntry.grid(row=3, column=1, sticky=tk.W)
+        self.xEntry.bind("<KeyRelease>", self._xyChange)
+        self.yEntry.bind("<KeyRelease>", self._xyChange)
+
+        # Start Button
+        self.startButton = tk.Button(self, width=12, text="Start", font=("MS Serif", 18), command=self.start_game)
+        self.startButton.grid(row=4, column=0, columnspan=2, sticky=tk.S, pady=(10, 0))
+
+        root.mainloop()
+    
+    def _xyValid(self, s):
+        return s == "" or s.isdigit()
+    
+    def _mValid(self, s):
+        self._xyValid(s) and (0 if s=="" else int(s)) < (self.X() * self.Y())
+    
+    def _xyChange(self, ev):
+        if self.M() >= self.X() * self.Y():
+            self.m.set(self.X() * self.Y() - 1)
+        
+    def X(self):
+        return int(self.x.get())
+    def Y(self):
+        return int(self.y.get())
+    def M(self):
+        return int(self.m.get())
+    
+    def open_settings(self):
+        if self.settingsWindow:
+            self.settingsWindow.destroy()
+        self.settingsWindow = tk.Toplevel(self)
+        self.settingsWindow.transient(self)
+        self.settingsWindow.title("Settings")
+        self.settingsWindow.iconbitmap("resources\\mine.ico")
+
+        MS_SettingWindow(self.settingsWindow, self.configFilename)
+        self.settingsWindow.mainloop()
+
+    def start_game(self):
+        if self.gameWindow:
+            self.gameWindow.destroy()
+        self.gameWindow = tk.Toplevel(self)
+        self.gameWindow.resizable(True, True)
+        self.gameWindow.transient()
+        self.gameWindow.title("Minesweeper")
+        self.gameWindow.iconbitmap("resources\\mine.ico")
+
+        MS_GameWindow(self.gameWindow, self.X(), self.Y(), self.M(), self.config["tileSize"])
+        self.gameWindow.mainloop()
+
+class MS_SettingWindow(tk.Frame):
+    def __init__(self, root, filename):
+        super().__init__(root, bd=10)
+        self.pack()
         self.root = root
 
-        self.x = x
-        self.y = y
-        self.mines = mines
+        self.filename = filename
+        self.config = {}
+        with open(filename, 'r') as f:
+            self.config = {line.split("=")[0]: line.split("=")[1] for line in f.readlines()}
 
-        self.game = Minesweeper.MS_Game(x, y, mines)
+        font = ("MS Serif", 14)
+        self.tileSizeLabel = tk.Label(self, text="Tile Size:", font=font)
+        self.tileSizeLabel.grid(row=0, column=0, sticky=tk.E)
+
+        self.tileSize = tk.StringVar()
+        self.tileSizeEntry = tk.Entry(self, width=7, textvariable=self.tileSize)
+        self.tileSizeEntry.grid(row=0, column=1, sticky=tk.W)
+        self.tileSize.set(self.config["tileSize"])
+
+        self.saveButton = tk.Button(self, text="Save", font=("MS Serif", 14), command=self.save)
+
+    def save(self):
+        with open(self.filename, 'w') as f:
+            for k,v in self.config.items():
+                f.wrtie("{}={}\n".format(k, v))
+        
+class MS_GameWindow(tk.Frame):
+    def __init__(self, root, x, y, mines, tile_size, *args, **kwargs):
+        super().__init__(root, *args, **kwargs)
+        self.root = root
+
+        # Init members
+        self.x, self.y, self.mines = x, y, mines
+
+        # Init game object
+        self.game = MS_Game(x, y, mines)
+        self.game.e_TilesDisplayed += self.onTilesDisplayed
+        self.game.e_TileFlagChanged += self.onTileFlagChanged
+        self.game.e_GameReset += self.onGameReset
+        self.game.e_GameComplete += self.onGameComplete
+
+        # Init AI object
+        self.AI = MS_AI(self.game)
+
+        # Init window components
         self.header = MS_Header(self)
-        self.minefield = MS_Field(self)
+        self.minefield = MS_Field(self, tile_size=tile_size)
 
+        # Layout window components
         self.header.grid(row=0, column=0, sticky=tk.W+tk.N+tk.E)
         self.minefield.grid(row=1, column=0, sticky=tk.W+tk.S+tk.E)
+
+        self.pack()
         root.after(5, self.update)
-
-    def get_game(self):
-        return self.game
-
-    def game_status(self):
-        return self.game.status
-
-    def is_active(self):
-        return self.game_status() == 'ACTIVE'
 
     def update(self):
         self.minefield.focus_set()
         self.update_time()
-        if len(self.game.event_queue) > 0:
-            type, data = self.game.event_queue.pop(0)
-            if type == "is_cleared":
-                self.minefield.clear_tiles(data)
-            if type == "FLAG_PLACED":
-                tile, flags = data
-                self.minefield.place_flag(tile)
-                self.header.update_flag_count(flags)
-            if type == "FLAG_REMOVED":
-                tile, flags = data
-                self.minefield.remove_flag(tile)
-                self.header.update_flag_count(flags)
-            if type == "WIN":
-                self.win_game()
-            if type == "LOSE":
-                self.lose_game(data)
-            if type == "RESET":
-                self.update_reset()
         self.root.after(75, self.update)
 
+    def onTilesDisplayed(self, tiles):
+        self.minefield.clear_tiles([tile.id for tile in tiles])
+
+    def onTileFlagChanged(self, tile_num, flagged):
+        # Update tile
+        if flagged:
+            self.minefield.place_flag(tile_num)
+        else:
+            self.minefield.remove_flag(tile_num)
+        
+        # Update flag counter
+        self.header.update_flag_count(self.game.flags)
+
+    def onGameReset(self):
+        self.AI.reset()
+        self.update_reset()
+
+    def onGameComplete(self):
+        if self.game.is_win():
+            self.win_game()
+        elif self.game.is_lose():
+            self.lose_game()
+
     def update_time(self):
-        try:
-            time = self.game.get_cur_time()
-        except:
+        if not self.game.is_active():
             return
+        time = self.game.get_cur_time()
         self.header.set_time(int(time))
 
     def button_click(self):
@@ -73,26 +202,18 @@ class MS_App(tk.Frame):
         else:
             self.game.reset()
 
-    def manual_reset(self, event):
+    def manual_reset(self):
         self.game.reset()
 
-    def flag_cheat(self, event):
-        MS_AI.flag_obvious(self.game)
-
-    def clear_cheat(self, event):
-        MS_AI.clear_obvious(self.game)
-
-    def super_cheat(self, event):
-        MS_AI.AI_1(self.game)
-
-    def first_move(self, event):
+    def first_move(self):
+        if self.game.is_ready():
+            self.game.start_game()
         self.game.clear_random_empty()
 
-    def lose_game(self, data):
-        mines, flags = data
+    def lose_game(self):
         self.header.update_lose()
-        self.minefield.reveal_mines(mines)
-        self.minefield.reveal_bad_flags(flags)
+        self.minefield.reveal_mines(self.game.unflagged_mines())
+        self.minefield.reveal_bad_flags(self.game.misplaced_flags())
         return
 
     def win_game(self):
@@ -102,7 +223,9 @@ class MS_App(tk.Frame):
     def update_reset(self):
         self.header.update_reset()
         self.minefield.update_reset()
-        
+
+    def set_thinking(self, thinking):
+        self.header.update_thinking(thinking)
 
 class MS_Header(tk.Frame):
     def __init__(self, root, *args, **kwargs):
@@ -112,7 +235,7 @@ class MS_Header(tk.Frame):
 
         self.flag_counter = tk.Label(self, text=root.mines)
         self.time_counter = tk.Label(self, text='000')
-        self.button = tk.Button(self, text="Clear", command=self.button_callback)
+        self.button = tk.Button(self, text="Clear", state="disabled", command=self.button_callback)
 
         self.flag_counter.grid(row=0, column=0)
         self.button.grid(row=0, column=1)
@@ -128,84 +251,141 @@ class MS_Header(tk.Frame):
 
     def display_score(self):
         game = self.root.game
-        score = game.final_score
+        score = game.final_score if not any([game.is_mined(i) and game.is_displayed(i) for i in range(game.N)]) else 0
         total = game.m
         self.flag_counter.configure(text="{} / {}".format(score, total))
 
     def update_flag_count(self, flags):
         self.flag_counter.config(text=flags)
+        self.button.configure(state = "disabled" if flags != 0 else "normal")
 
     def update_win(self):
-        self.button.configure(fg='green', text="Restart")
+        self.button.configure(fg='green', text="Restart", state='normal')
         self.display_score()
 
     def update_lose(self):
-        self.button.configure(fg='red', text="Restart")
+        self.button.configure(fg='red', text="Restart", state='normal')
         self.display_score()
 
+    def update_thinking(self, thinking):
+        if thinking:
+            self.button.configure(text="Thinking...", state=self.button['state'])
+        else:
+            self.button.configure(fg='black', text="Clear", state=self.button['state'])
+        self.update()
+
     def update_reset(self):
-        self.button.configure(fg='black', text="Clear")
+        self.button.configure(fg='black', text="Clear", state='disabled')
         self.update_flag_count(self.root.game.m)
         self.time_counter.configure(text='000')
 
-
 class MS_Field(tk.Canvas):
-    def __init__(self, root, *args, **kwargs):
+    NumberColors = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
+    
+    def __init__(self, root, tile_size, *args, **kwargs):
         super().__init__(root, *args, **kwargs)
-        self.configure(width=root.x*TILE_SIZE+2, height=root.y*TILE_SIZE+2,  highlightthickness=0, borderwidth=0)
+        self.configure(width=root.x*tile_size+2, height=root.y*tile_size+2,  highlightthickness=0, borderwidth=0)
         self.root = root
+
+        self.tile_size = tile_size
+        self.display_tile_ids = False
+        self.death_tile = None
         
-        self.bind("<1>", self.lclick_callback)
-        self.bind("<3>", self.rclick_callback)
-        self.bind("<Return>", lambda _: self.root.button_click())
-        self.bind("r", self.root.manual_reset)
-        self.bind("f", self.root.flag_cheat)
-        self.bind("c", self.root.clear_cheat)
-        self.bind("1", self.root.first_move)
-        self.bind("a", self.root.super_cheat)
         self.new_field()
         return
+    
+    def set_bindings(self):
+        self.bind("q", lambda ev: print(ev, ev.state, bool(ev.state&4)))
+        self.bind("<1>", self.onLeftClick)
+        self.bind("<3>", self.onRightClick)
+        self.bind("<Return>", lambda _: self.root.button_click())
+        self.bind("r", lambda _: self.root.manual_reset())
+        self.bind("s", lambda _: self.root.first_move())
+        self.bind("l", lambda _: self.bar())
+        self.bind("<Control-g>", lambda _: self.show_full_graph())
+        self.bind("<Shift-G>", lambda _: self.show_number_graph())
+        self.bind("n", lambda _: self.toggle_tile_ids())
+        self.bind("f", lambda _: self.auto_finish())
+        self.bind("1", lambda ev: self.full_auto_cheat(1) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(1) if bool(ev.state&4) else self.cheat(1))
+        self.bind("2", lambda ev: self.full_auto_cheat(2) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(2) if bool(ev.state&4) else self.cheat(2))
+        self.bind("3", lambda ev: self.full_auto_cheat(3) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(3) if bool(ev.state&4) else self.cheat(3))
+        self.bind("4", lambda ev: self.full_auto_cheat(4) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(4) if bool(ev.state&4) else self.cheat(4))
+        self.bind("5", lambda ev: self.full_auto_cheat(5) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(5) if bool(ev.state&4) else self.cheat(5))
+        self.bind("6", lambda ev: self.full_auto_cheat(6) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(6) if bool(ev.state&4) else self.cheat(6))
+        self.bind("7", lambda ev: self.full_auto_cheat(7) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(7) if bool(ev.state&4) else self.cheat(7))
+        self.bind("8", lambda ev: self.full_auto_cheat(8) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(8) if bool(ev.state&4) else self.cheat(8))
+        self.bind("9", lambda ev: self.full_auto_cheat(9) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(9) if bool(ev.state&4) else self.cheat(9))
+        self.bind("0", lambda ev: self.full_auto_cheat(10) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(10) if bool(ev.state&4) else self.cheat(10))
+        self.bind("m", lambda ev: self.full_auto_cheat(self.root.game.N) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(self.root.game.N) if bool(ev.state&4) else self.cheat(self.root.game.N))
+        self.bind("<Control-Up>", lambda _: self.increment_tile_size())
+        self.bind("<Control-Down>", lambda _: self.decrement_tile_size())
+    
+    def increment_tile_size(self):
+        self.tile_size += 1
+        self.configure(width=self.root.x*self.tile_size+2, height=self.root.y*self.tile_size+2)
+        self.new_field(recreate=True)
+    
+    def decrement_tile_size(self):
+        self.tile_size -= 1
+        self.configure(width=self.root.x*self.tile_size+2, height=self.root.y*self.tile_size+2)
+        self.new_field(recreate=True)
 
-    def new_field(self):
-        self.tiles = []
-        self.texts = []
+    def toggle_tile_ids(self):
+        self.display_tile_ids = not self.display_tile_ids
+        for i in range(self.root.x*self.root.y):
+            self.itemconfig(self.tile_nums[i], text=(str(i) if self.display_tile_ids else ''))
+        self.new_field(recreate=True)
+
+    def new_field(self, recreate=False):
+        if not recreate:
+            self.tiles = []
+            self.texts = []
+            self.tile_nums = []
         x, y = self.root.x, self.root.y
         for i in range(x*y):
-            x1 = (i%x) * TILE_SIZE
-            y1 = (i//x) * TILE_SIZE
-            x2 = x1 + TILE_SIZE
-            y2 = y1 + TILE_SIZE
-            self.tiles.append(self.create_rectangle(x1, y1, x2, y2, outline='black', fill='grey'))
-            self.texts.append(self.create_text(((x1+x2)/2, (y1+y2)/2), text=''))
-
+            x1 = (i%x) * self.tile_size
+            y1 = (i//x) * self.tile_size
+            x2 = x1 + self.tile_size
+            y2 = y1 + self.tile_size
+            if not recreate:
+                self.tiles.append(self.create_rectangle(x1, y1, x2, y2, outline='black', fill='grey'))
+                self.texts.append(self.create_text(((x1+x2)/2, (y1+y2)/2), text=''))
+                self.tile_nums.append(self.create_text((x1, y1), text=(str(i) if self.display_tile_ids else ''), anchor=tk.NW))
+            else:
+                self.coords(self.tiles[i], x1, y1, x2, y2)
+                self.coords(self.texts[i], ((x1+x2)/2, (y1+y2)/2))
+                self.coords(self.tile_nums[i], (x1, y1))
 
     def update_reset(self):
         self.new_field()
 
     def click_to_tile(self, event):
-        return self.root.game.tile_num(event.x // TILE_SIZE, event.y // TILE_SIZE)
+        return self.root.game.field.tile_num(event.x // self.tile_size, event.y // self.tile_size)
 
     def clear_tiles(self, ts):
         game = self.root.game
         for tile in ts:
-            num = game.field[tile][1]
+            if self.root.game.is_mined(tile):
+                self.death_tile = tile
+                return
+            num = game.field[tile].mine_count
             if num != 0:
-                self.itemconfigure(self.texts[tile], text=game.field[tile][0], fill=COLORS[num-1])
+                self.itemconfigure(self.texts[tile], text=str(num), fill=COLORS[num-1])
             self.itemconfigure(self.tiles[tile], fill='white')
-        return
+        self.update()
 
     def place_flag(self, t):
-        self.itemconfigure(self.texts[t], text='F')
-        return 
+        self.itemconfigure(self.texts[t], text='F', fill='red')
+        self.update()
 
     def remove_flag(self, t):
         self.itemconfigure(self.texts[t], text='')
-        return
+        self.update()
 
     def reveal_mines(self, mines):
         for m in mines:
             self.itemconfigure(self.texts[m], text='M')
-            self.itemconfigure(self.tiles[m], fill='red')
+            self.itemconfigure(self.tiles[m], fill='orange' if self.death_tile is not None and self.death_tile == m else 'red')
 
     def reveal_bad_flags(self, flags):
         for f in flags:
@@ -216,12 +396,75 @@ class MS_Field(tk.Canvas):
         for f in flags:
             self.itemconfigure(self.tiles[f], fill='green')
 
-    def lclick_callback(self, event):
-        t = self.click_to_tile(event)
-        game = self.root.get_game()
+    def cheat(self, n):
+        self.root.set_thinking(thinking=True)
+        print("Cheat level {} starting".format(n))
+        ai = self.root.AI
+        game = self.root.game
+        if game.is_complete():
+            return
+        if game.is_ready():
+            game.start_game()
+            game.clear_random_empty()
+        flags, clears = ai.level_n_actions(n)
+        for id in flags:
+            game.flag(id)
+        for id in clears:
+            game.clear(id)
+        progress = (len(flags) > 0) or (len(clears) > 0)
+        print("Cheat complete ({})".format("progress made" if progress else "no progress"))
+        self.root.set_thinking(thinking=False)
 
-        if (t<0) or (t>game.x*game.y -1):
+    def auto_cheat(self, max_level):
+        self.root.set_thinking(thinking=True)
+        print("Auto-cheat starting (level {})".format(max_level))
+        progress_made = self.root.AI.auto_play(max_level)
+        print("Auto-cheat complete ({})".format("progress made" if progress_made else "no progress"))
+        self.root.set_thinking(thinking=False)
+
+    def full_auto_cheat(self, max_level):
+        self.root.set_thinking(thinking=True)
+        print("Auto-cheat starting (level {})".format(max_level))
+        progress_made = self.root.AI.auto_play(max_level, to_completion=True, samples=2000, yolo_cutoff=0.01)
+        print("Auto-cheat complete ({})".format("progress made" if progress_made else "no progress"))
+        self.root.set_thinking(thinking=False)
+
+    def auto_finish(self):
+        self.root.set_thinking(thinking=True)
+        print("Auto-finishing")
+        self.root.AI.do_probable_actions(samples=2000, yolo_cutoff=0.075)
+        print("Auto-finish complete")
+        if not self.root.game.is_complete():
+            self.root.set_thinking(thinking=False)
+
+    def show_full_graph(self):
+        self.root.AI.display_full_graph()
+
+    def show_number_graph(self):
+        self.root.AI.display_number_graph()
+
+    def onLeftClick(self, event):
+        t = self.click_to_tile(event)
+        game = self.root.game
+
+        if game.status == MS_Status.Active:
+            return
+
+        if (t < 0) or (t > (game.N - 1)):
             raise Exception("bad click?")
+
+        if game.is_ready():
+            game.start_game()
+
+        # check for click on number
+        tile = game.field[t]
+        if tile.displayed:
+            nebs = game.field.neighbors(t)
+            flag_count = len([neb for neb in nebs if game.field[neb].flagged])
+            unflagged_nebs = [neb for neb in nebs if not game.field[neb].displayed and not game.field[neb].flagged]
+            if tile.mine_count == flag_count:
+                for neb in unflagged_nebs:
+                    game.clear(neb)
 
         # clear tile
         game.clear(t)
@@ -231,9 +474,15 @@ class MS_Field(tk.Canvas):
 
         return
 
-    def rclick_callback(self, event):
+    def onRightClick(self, event):
         t = self.click_to_tile(event)
         game = self.root.get_game()
+
+        if game.is_complete():
+            return
+
+        if (t < 0) or (t > (game.N - 1)):
+            raise Exception("bad click?")
 
         # Flag tile in game
         game.flag(t)
@@ -241,22 +490,30 @@ class MS_Field(tk.Canvas):
         # Update
         self.root.update()
 
+def write_default_config(filename):
+    config = {
+        "tileSize": 10
+    }
+    lines = ["{}={}".format(k,v) for k,v in config.items()]
+    with open(filename, 'w') as f:
+        f.writelines(lines)
+
 def main():
-    # Get args
-    x, y, m = 10, 10, 5
+    settings = MS_Settings()
     try:
-        x,y,m = sys.argv[1:]
+        with open(SETTINGS_FILE, 'r') as f:
+            settings = pickle.load(f)
     except:
-        pass
+        print("Settings file {} could not be loaded".format(SETTINGS_FILE))
 
-    # Create window
-    root = tk.Tk()
-    root.title("Minesweeper")
+    
+        root = tk.Tk()
+        root.resizable(False, False)
+        root.iconbitmap("resources\\mine.ico")
+        root.title("Minesweeper")
 
-    # Start game
-    app = MS_App(root, int(x), int(y), mines=int(m), bd=5)
-    app.pack()
-    root.mainloop()
+    # Start main screen
+    MS_MainScreen(configFilename)
 
 if __name__ == "__main__":
     main()
