@@ -55,7 +55,9 @@ class MS_App():
         self.game_window.iconbitmap("resources\\mine.ico")
 
         game_frame = MS_GameFrame(self.game_window, x, y, m, self.settings.tile_size)
-        game_frame.pack()
+        game_frame.grid(row=0, column=0)
+        self.game_window.grid_rowconfigure(0, weight=1)
+        self.game_window.grid_columnconfigure(0, weight=1)
         self.game_window.mainloop()
 
     def open_settings_window(self):
@@ -197,8 +199,8 @@ class MS_GameFrame(tk.Frame):
         self.minefield = MS_GameFrame_Field(self, tile_size=tile_size)
 
         # Layout window components
-        self.header.grid(row=0, column=0, sticky=tk.W+tk.N+tk.E)
-        self.minefield.grid(row=1, column=0, sticky=tk.W+tk.S+tk.E)
+        self.header.grid(row=0, column=0, sticky=tk.W+tk.E)
+        self.minefield.grid(row=1, column=0)
 
         root.after(5, self.update)
 
@@ -277,9 +279,9 @@ class MS_GameFrame_Header(tk.Frame):
         self.time_counter = tk.Label(self, text='000')
         self.button = tk.Button(self, text="Clear", state="disabled", command=self.button_callback)
 
-        self.flag_counter.grid(row=0, column=0)
+        self.flag_counter.grid(row=0, column=0, sticky=tk.W)
         self.button.grid(row=0, column=1)
-        self.time_counter.grid(row=0, column=2)
+        self.time_counter.grid(row=0, column=2, sticky=tk.E)
         self.grid_columnconfigure(1, weight=1)
 
     def button_callback(self):
