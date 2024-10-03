@@ -6,23 +6,93 @@ import tkinter as tk
 import pickle
 import os
 
-SETTINGS_FILE = "ms_settings.pk"
-
 class MS_Settings:
     DefaultTileSize = 10
     
     def __init__(self):
         self.tile_size = MS_Settings.DefaultTileSize 
 
+class MS_App():
+    SETTINGS_FILE = "ms_settings.pk"
+
+    def __init__(self):
+        self.main_window = None
+        self.settings_window = None
+        self.game_window = None
+        self.settings = None
+
+    def run(self):
+        self.settings = MS_Settings()
+        try:
+            self.settings = self.get_settings()
+        except:
+            print("Settings file {} could not be loaded".format(MS_App.SETTINGS_FILE))
+            self.save_settings(self.settings)
+
+        self.main_window = tk.Tk()
+        self.main_window.resizable(False, False)
+        self.main_window.iconbitmap("resources\\mine.ico")
+        self.main_window.title("Minesweeper")
+
+        # Menu bar
+        menubar = tk.Menu(self.main_window)
+        menubar.add_command(label="Settings", command=self.open_settings_window)
+        self.main_window.config(menu=menubar)
+
+        # Start main screen
+        main_frame = MS_MainFrame(self.main_window, self.settings)
+        main_frame.e_StartGameRequest += self.start_game
+        main_frame.pack()
+
+        self.main_window.mainloop()
+    
+    def start_game(self, x, y, m):
+        if self.game_window:
+            self.game_window.destroy()
+        self.game_window = tk.Toplevel(self.main_window)
+        self.game_window.minsize(250, 100)
+        self.game_window.title("Minesweeper")
+        self.game_window.iconbitmap("resources\\mine.ico")
+
+        game_frame = MS_GameFrame(self.game_window, x, y, m, self.settings.tile_size)
+        game_frame.pack()
+        self.game_window.mainloop()
+
+    def open_settings_window(self):
+        if self.settings_window:
+            self.settings_window.destroy()
+        self.settings_window = tk.Toplevel(self.main_window)
+        self.settings_window.geometry("+{:d}+{:d}".format(self.main_window.winfo_x(), self.main_window.winfo_y()))
+        self.settings_window.transient(self.main_window)
+        self.settings_window.title("Settings")
+        self.settings_window.iconbitmap("resources\\mine.ico")
+
+        settings_frame = MS_SettingsFrame(self.settings_window, self.settings)
+        settings_frame.e_SettingsUpdate += self.onSettingsUpdate
+        settings_frame.pack()
+        self.settings_window.mainloop()
+
+    def onSettingsUpdate(self, new_settings):
+        self.settings = new_settings
+        self.save_settings(self.settings)
+
+    def get_settings(self):
+        with open(MS_App.SETTINGS_FILE, 'rb') as f:
+            return pickle.load(f)
+        
+    def save_settings(self, settings):
+        with open(MS_App.SETTINGS_FILE, 'wb') as f:
+            pickle.dump(settings, f)
+
 class MS_MainFrame(tk.Frame):
     def __init__(self, root, settings: MS_Settings):
 
         self.root = root
         self.settings = settings
-        self.gameWindow = None
-        self.settingsWindow = None
 
         super().__init__(root, bd=10)
+
+        self.e_StartGameRequest = EventSource()
 
         # Title
         self.title = tk.Label(self, text="Minesweeper", font=("MS Serif", 32))
@@ -30,8 +100,8 @@ class MS_MainFrame(tk.Frame):
 
         # X/Y/M Labels
         xymFont = ("MS Serif", 14)
-        self.xLabel = tk.Label(self, text="X:", font=xymFont)
-        self.yLabel = tk.Label(self, text="Y:", font=xymFont)
+        self.xLabel = tk.Label(self, text="Width:", font=xymFont)
+        self.yLabel = tk.Label(self, text="Height:", font=xymFont)
         self.mLabel = tk.Label(self, text="Mines:", font=xymFont)
         self.xLabel.grid(row=1, column=0, sticky=tk.E)
         self.yLabel.grid(row=2, column=0, sticky=tk.E)
@@ -54,7 +124,7 @@ class MS_MainFrame(tk.Frame):
         self.yEntry.bind("<KeyRelease>", self._xyChange)
 
         # Start Button
-        self.startButton = tk.Button(self, width=12, text="Start", font=("MS Serif", 18), command=self.start_game)
+        self.startButton = tk.Button(self, width=12, text="Start", font=("MS Serif", 18), command=lambda: self.e_StartGameRequest.emit(self.X(), self.Y(), self.M()))
         self.startButton.grid(row=4, column=0, columnspan=2, sticky=tk.S, pady=(10, 0))
     
     def _xyValid(self, s):
@@ -74,18 +144,6 @@ class MS_MainFrame(tk.Frame):
     def M(self):
         return int(self.m.get())
 
-    def start_game(self):
-        if self.gameWindow:
-            self.gameWindow.destroy()
-        self.gameWindow = tk.Toplevel(self)
-        self.gameWindow.resizable(True, True)
-        self.gameWindow.transient()
-        self.gameWindow.title("Minesweeper")
-        self.gameWindow.iconbitmap("resources\\mine.ico")
-
-        MS_GameFrame(self.gameWindow, self.X(), self.Y(), self.M(), self.settings.tile_size)
-        self.gameWindow.mainloop()
-
 class MS_SettingsFrame(tk.Frame):
     def __init__(self, root, settings: MS_Settings):
         super().__init__(root, bd=10)
@@ -99,19 +157,22 @@ class MS_SettingsFrame(tk.Frame):
         self.tileSizeLabel = tk.Label(self, text="Tile Size:", font=font)
         self.tileSizeLabel.grid(row=0, column=0, sticky=tk.E)
 
+        tileSizeValid = (self.register(lambda s: self._validate_tile_size(s)), '%P')
         self.tileSize = tk.StringVar()
-        self.tileSizeEntry = tk.Entry(self, width=7, textvariable=self.tileSize, validate='key', validatecommand=self._validate_tile_size)
+        self.tileSizeEntry = tk.Entry(self, width=7, textvariable=self.tileSize, validate='key', validatecommand=tileSizeValid)
         self.tileSizeEntry.grid(row=0, column=1, sticky=tk.W)
         self.tileSize.set(self.settings.tile_size)
 
-        self.saveButton = tk.Button(self, text="Save", font=("MS Serif", 14), command=self.e_SettingsUpdate.emit(self.settings))
+        self.saveButton = tk.Button(self, width=10, text="Save", font=("MS Serif", 14), command=self.save_button_click)
+        self.saveButton.grid(row=1, column=0, columnspan=2)
 
     def _validate_tile_size(self, s):
-        try:
-            self.settings.tile_size = int(self.tileSize.get())
-        except:
-            return False
         return s == "" or s.isdigit()
+    
+    def save_button_click(self):
+        self.settings.tile_size = int(self.tileSize.get())
+        self.e_SettingsUpdate.emit(self.settings)
+        self.root.destroy()
         
 class MS_GameFrame(tk.Frame):
     def __init__(self, root, x, y, mines, tile_size, *args, **kwargs):
@@ -139,7 +200,6 @@ class MS_GameFrame(tk.Frame):
         self.header.grid(row=0, column=0, sticky=tk.W+tk.N+tk.E)
         self.minefield.grid(row=1, column=0, sticky=tk.W+tk.S+tk.E)
 
-        self.pack()
         root.after(5, self.update)
 
     def update(self):
@@ -150,12 +210,12 @@ class MS_GameFrame(tk.Frame):
     def onTilesDisplayed(self, tiles):
         self.minefield.clear_tiles([tile.id for tile in tiles])
 
-    def onTileFlagChanged(self, tile_num, flagged):
+    def onTileFlagChanged(self, tile):
         # Update tile
-        if flagged:
-            self.minefield.place_flag(tile_num)
+        if tile.flagged:
+            self.minefield.place_flag(tile.id)
         else:
-            self.minefield.remove_flag(tile_num)
+            self.minefield.remove_flag(tile.id)
         
         # Update flag counter
         self.header.update_flag_count(self.game.flags)
@@ -165,9 +225,9 @@ class MS_GameFrame(tk.Frame):
         self.update_reset()
 
     def onGameComplete(self):
-        if self.game.is_win():
+        if self.game.game_won:
             self.win_game()
-        elif self.game.is_lose():
+        else:
             self.lose_game()
 
     def update_time(self):
@@ -231,9 +291,7 @@ class MS_GameFrame_Header(tk.Frame):
 
     def display_score(self):
         game = self.root.game
-        score = game.final_score if not any([game.is_mined(i) and game.is_displayed(i) for i in range(game.N)]) else 0
-        total = game.m
-        self.flag_counter.configure(text="{} / {}".format(score, total))
+        self.flag_counter.configure(text="{} / {}".format(game.score, game.m))
 
     def update_flag_count(self, flags):
         self.flag_counter.config(text=flags)
@@ -270,7 +328,9 @@ class MS_GameFrame_Field(tk.Canvas):
         self.tile_size = tile_size
         self.display_tile_ids = False
         self.death_tile = None
+        self.number_colors = MS_GameFrame_Field.NumberColors
         
+        self.set_bindings()
         self.new_field()
         return
     
@@ -350,7 +410,7 @@ class MS_GameFrame_Field(tk.Canvas):
                 return
             num = game.field[tile].mine_count
             if num != 0:
-                self.itemconfigure(self.texts[tile], text=str(num), fill=COLORS[num-1])
+                self.itemconfigure(self.texts[tile], text=str(num), fill=self.number_colors[num-1])
             self.itemconfigure(self.tiles[tile], fill='white')
         self.update()
 
@@ -427,10 +487,9 @@ class MS_GameFrame_Field(tk.Canvas):
         t = self.click_to_tile(event)
         game = self.root.game
 
-        if game.status == MS_Status.Active:
+        if game.status == MS_Status.Complete:
             return
-
-        if (t < 0) or (t > (game.N - 1)):
+        if not 0 <= t < game.N:
             raise Exception("bad click?")
 
         if game.is_ready():
@@ -439,12 +498,12 @@ class MS_GameFrame_Field(tk.Canvas):
         # check for click on number
         tile = game.field[t]
         if tile.displayed:
-            nebs = game.field.neighbors(t)
-            flag_count = len([neb for neb in nebs if game.field[neb].flagged])
-            unflagged_nebs = [neb for neb in nebs if not game.field[neb].displayed and not game.field[neb].flagged]
+            nebs = game.field.get_neighbors(t)
+            flag_count = len([neb for neb in nebs if neb.flagged])
+            unflagged_nebs = [neb for neb in nebs if not neb.displayed and not neb.flagged]
             if tile.mine_count == flag_count:
                 for neb in unflagged_nebs:
-                    game.clear(neb)
+                    game.clear(neb.id)
 
         # clear tile
         game.clear(t)
@@ -456,12 +515,11 @@ class MS_GameFrame_Field(tk.Canvas):
 
     def onRightClick(self, event):
         t = self.click_to_tile(event)
-        game = self.root.get_game()
+        game = self.root.game
 
-        if game.is_complete():
+        if game.status == MS_Status.Complete:
             return
-
-        if (t < 0) or (t > (game.N - 1)):
+        if not 0 <= t < game.N:
             raise Exception("bad click?")
 
         # Flag tile in game
@@ -470,58 +528,9 @@ class MS_GameFrame_Field(tk.Canvas):
         # Update
         self.root.update()
 
-def open_settings_window():
-    if settings_window:
-        settings_window.destroy()
-    settings_window = tk.Toplevel(main_window)
-    settings_window.transient(main_window)
-    settings_window.title("Settings")
-    settings_window.iconbitmap("resources\\mine.ico")
-
-    settings_frame = MS_SettingsFrame(settings_window, settings)
-    settings_frame.e_SettingsUpdate += onSettingsUpdate
-    settings_frame.pack()
-    settings_window.mainloop()
-
-def onSettingsUpdate(new_settings):
-    settings = new_settings
-    save_settings()
-
-def get_settings():
-    with open(SETTINGS_FILE, 'r') as f:
-        return pickle.load(f)
-    
-def save_settings(settings=None):
-    with open(SETTINGS_FILE, 'w') as f:
-        pickle.dump(settings, f)
-
-settings = MS_Settings()
-settings_window = None
-main_window = None
-
 def main():
-    try:
-        settings = get_settings()
-    except:
-        print("Settings file {} could not be loaded".format(SETTINGS_FILE))
-
-    
-    main_window = tk.Tk()
-    main_window.resizable(False, False)
-    main_window.iconbitmap("resources\\mine.ico")
-    main_window.title("Minesweeper")
-
-    # Menu bar
-    menubar = tk.Menu(main_window)
-    menubar.add_command(label="Settings", command=open_settings_window)
-    main_window.config(menu=menubar)
-
-    # Start main screen
-    main_frame = MS_MainFrame(main_window, settings)
-    main_frame.pack()
-
-    main_window.mainloop()
-    
+    app = MS_App()
+    app.run()
 
 if __name__ == "__main__":
     main()

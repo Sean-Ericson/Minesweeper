@@ -93,7 +93,6 @@ class Number_Subgraph:
         self.nodes = nodes
         self.level = level
 
-
 ############################################################
 # The Best AI Ever
 ############################################################
@@ -120,9 +119,9 @@ class MS_AI:
             self.update_number_graph(tile)
         self.update_number_subgraphs()
 
-    def onTileFlagChanged(self, id, flagged):
-        self.flag_update_full_graph(id)
-        self.flag_update_number_graph(id)
+    def onTileFlagChanged(self, tile):
+        self.flag_update_full_graph(tile.id)
+        self.flag_update_number_graph(tile.id)
         self.update_number_subgraphs()
 
     def onGameReset(self):
@@ -137,7 +136,7 @@ class MS_AI:
         if tile.mine_count == 0:
             return
         
-        neighbor_tiles = self.game.get_tiles(tile.neighbors)
+        neighbor_tiles = self.game.field.get_neighbors(tile.id)
         flagged_neighbors = len([n for n in neighbor_tiles if n.flagged])
         tile.effective_count = tile.mine_count - flagged_neighbors
 
@@ -145,7 +144,7 @@ class MS_AI:
         #    return
 
         self.full_graph.add_node(tile.id, **vars(tile))
-        for neighbor in self.game.get_tiles(tile.neighbors):
+        for neighbor in neighbor_tiles:
             if not neighbor.displayed:
                 self.full_graph.add_node(neighbor.id, **vars(neighbor))
                 self.full_graph.add_edge(tile.id, neighbor.id)

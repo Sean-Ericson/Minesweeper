@@ -36,7 +36,7 @@ class MS_Tile:
         self.id = id
         self.neighbors = []
 
-class MS_GameFrame_Field:
+class MS_Field:
     """
     A minefield in a Minesweeper game.
     """
@@ -119,7 +119,7 @@ class MS_Game:
         self.init_members()
 
         # Initialize field
-        self.field = MS_GameFrame_Field(x, y, m)
+        self.field = MS_Field(x, y, m)
         self.field.initialize()
 
         # Set up events
@@ -167,7 +167,7 @@ class MS_Game:
     # Get the elapsed time
     def get_cur_time(self) -> float:
         # Current time only valid for active game
-        if self.status == MS_Status.Active:
+        if self.status != MS_Status.Active:
             raise Exception("Game inactive")
 
         # Return the time
@@ -230,7 +230,7 @@ class MS_Game:
     def misplaced_flags(self) -> list[int]:
         return [i for i in range(self.N) if self.is_flagged(i) and not self.is_mined(i)]
 
-    # Toggle the flagg setting on tile n
+    # Toggle the flag setting on tile n
     def flag(self, n):
         if self.status != MS_Status.Active:
             raise Exception("Game not active")
@@ -258,7 +258,7 @@ class MS_Game:
         
         for neb in self.field.get_neighbors(n):
             self.field.calc_effective_count(neb.id)
-        self.e_TileFlagChanged.emit(tileNum=n, flagged=tile.flagged)
+        self.e_TileFlagChanged.emit(tile)
 
     # Set tile display value to hidden value
     def reveal(self, n):
@@ -298,7 +298,7 @@ class MS_Game:
         if self.is_mined(n):
             self.detonated = True
             self.reveal(n)
-            self.e_TilesDisplayed.emit(tiles=[n])
+            self.e_TilesDisplayed.emit(tiles=[tile])
             self.set_game_complete(game_won=False)
             return
         # Otherwise, cascade clear
@@ -318,12 +318,10 @@ class MS_Game:
             # If the tile is empty and next to no mines
             if tile.mine_count == 0:
 
-                # Get all its neighbors
-                for neb in tile.neighbors:
-                    neb_tile = self.field[neb]
-                    # For each uncleared neighbor, add to stack
-                    if not neb_tile.displayed:
-                        stack.append(neb_tile)
+                # Get all uncleared neighbors and add to stack
+                neighbors = [neb for neb in self.field.get_neighbors(tile.id) if not neb.displayed]
+                for neb in neighbors:
+                    stack.append(neb) # For each uncleared neighbor, add to stack
                         
             # Clear the tile
             self.reveal(tile.id)
