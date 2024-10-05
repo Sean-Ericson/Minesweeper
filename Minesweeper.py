@@ -28,13 +28,13 @@ class MS_Tile:
     A tile in a Minesweeper field.
     """
     def __init__(self, id: int):
-        self.displayed = False
-        self.flagged = False
-        self.mined = False
-        self.mine_count = None
-        self.effective_count = None
         self.id = id
-        self.neighbors = []
+
+        self.displayed: bool = False
+        self.flagged: bool = False
+        self.mined: bool = False
+        self.mine_count: int = 0
+        self.effective_count: int = 0
 
 class MS_Field:
     """
@@ -45,7 +45,7 @@ class MS_Field:
         self.y = y
         self.N = x*y
         self.m = m
-        self.tiles = []
+        self.tiles: list[MS_Tile] = []
 
     def __getitem__(self, key: Union[int, tuple[int, int]]) -> MS_Tile:
         if isinstance(key, int):
@@ -78,7 +78,6 @@ class MS_Field:
             mines = len([n for n in nebs if n.mined])
             self.tiles[i].mine_count = mines
             self.tiles[i].effective_count = mines
-            self.tiles[i].neighbors = nebs
 
     def get_neighbors(self, n: int) -> list[MS_Tile]:
         x,y = self.tile_loc(n)
@@ -99,8 +98,8 @@ class MS_Field:
         return (n%self.x, n//self.x)
     
     # Check if (x,y) is a valid tile
-    def is_valid_loc(self, x, y):
-        return (x>=0) and (x<self.x) and (y>=0) and (y<self.y)
+    def is_valid_loc(self, x: int, y: int) -> bool:
+        return (0 <= x < self.x) and (0 <= y < self.y)
 
 class MS_Game:
     """
@@ -129,16 +128,16 @@ class MS_Game:
         self.e_GameReset = EventSource()
 
     def init_members(self):
-        self.flags = self.m
-        self.status = MS_Status.Ready
-        self.start_time = None
-        self.game_won = None
-        self.score = None
-        self.total_time = None
+        self.flags: int = self.m
+        self.status: MS_Status = MS_Status.Ready
+        self.start_time: float
+        self.game_won: bool
+        self.score: int
+        self.total_time: float
 
     # Return str repr of the field
     def __str__(self) -> str:
-        s = self.status + '\n'
+        s = str(self.status) + '\n'
         for y in range(self.y):
             l = ""
             for x in range(self.x):
@@ -181,7 +180,7 @@ class MS_Game:
         return self.total_time
 
     def get_score(self) -> int:
-        if not (self.is_win() or self.is_lose()):
+        if self.status != MS_Status.Complete:
             raise Exception("Game not complete")
         return self.score
 

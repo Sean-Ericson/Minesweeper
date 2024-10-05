@@ -4,7 +4,7 @@ from Minesweeper import *
 from MS_AI import MS_AI
 import tkinter as tk
 import pickle
-import os
+from typing import Optional
 
 class MS_Settings:
     DefaultTileSize = 10
@@ -47,7 +47,7 @@ class MS_App():
         self.main_window.mainloop()
     
     def start_game(self, x, y, m):
-        if self.game_window:
+        if not (self.game_window is None):
             self.game_window.destroy()
         self.game_window = tk.Toplevel(self.main_window)
         self.game_window.minsize(250, 100)
@@ -111,11 +111,8 @@ class MS_MainFrame(tk.Frame):
 
         # X/Y/M Entry
         xyValid = (self.register(lambda s: self._xyValid(s)), '%P')
-        mValid = (self.register(lambda s: self._mValid(s), '%P'))
-        self.x, self.y, self.m = tk.StringVar(), tk.StringVar(), tk.StringVar()
-        self.x.set(10)
-        self.y.set(10)
-        self.m.set(20)
+        mValid = (self.register(lambda s: self._mValid(s)), '%P')
+        self.x, self.y, self.m = tk.StringVar(value='10'), tk.StringVar(value='10'), tk.StringVar(value='20')
         self.xEntry = tk.Entry(self, width=10, textvariable=self.x, validate='key', validatecommand=xyValid)
         self.yEntry = tk.Entry(self, width=10, textvariable=self.y, validate='key', validatecommand=xyValid)
         self.mEntry = tk.Entry(self, width=10, textvariable=self.m, validate='key', validatecommand=mValid)
@@ -129,15 +126,15 @@ class MS_MainFrame(tk.Frame):
         self.startButton = tk.Button(self, width=12, text="Start", font=("MS Serif", 18), command=lambda: self.e_StartGameRequest.emit(self.X(), self.Y(), self.M()))
         self.startButton.grid(row=4, column=0, columnspan=2, sticky=tk.S, pady=(10, 0))
     
-    def _xyValid(self, s):
+    def _xyValid(self, s: str) -> bool:
         return s == "" or s.isdigit()
     
     def _mValid(self, s):
-        self._xyValid(s) and (0 if s=="" else int(s)) < (self.X() * self.Y())
+        return self._xyValid(s) and (0 if s=="" else int(s)) < (self.X() * self.Y())
     
     def _xyChange(self, ev):
         if self.M() >= self.X() * self.Y():
-            self.m.set(self.X() * self.Y() - 1)
+            self.m.set(str(self.X() * self.Y() - 1))
         
     def X(self):
         return int(self.x.get())
@@ -163,7 +160,7 @@ class MS_SettingsFrame(tk.Frame):
         self.tileSize = tk.StringVar()
         self.tileSizeEntry = tk.Entry(self, width=7, textvariable=self.tileSize, validate='key', validatecommand=tileSizeValid)
         self.tileSizeEntry.grid(row=0, column=1, sticky=tk.W)
-        self.tileSize.set(self.settings.tile_size)
+        self.tileSize.set(str(self.settings.tile_size))
 
         self.saveButton = tk.Button(self, width=10, text="Save", font=("MS Serif", 14), command=self.save_button_click)
         self.saveButton.grid(row=1, column=0, columnspan=2)
@@ -337,28 +334,25 @@ class MS_GameFrame_Field(tk.Canvas):
         return
     
     def set_bindings(self):
-        self.bind("q", lambda ev: print(ev, ev.state, bool(ev.state&4)))
         self.bind("<1>", self.onLeftClick)
         self.bind("<3>", self.onRightClick)
         self.bind("<Return>", lambda _: self.root.button_click())
         self.bind("r", lambda _: self.root.manual_reset())
         self.bind("s", lambda _: self.root.first_move())
-        self.bind("l", lambda _: self.bar())
         self.bind("<Control-g>", lambda _: self.show_full_graph())
         self.bind("<Shift-G>", lambda _: self.show_number_graph())
         self.bind("n", lambda _: self.toggle_tile_ids())
         self.bind("f", lambda _: self.auto_finish())
-        self.bind("1", lambda ev: self.full_auto_cheat(1) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(1) if bool(ev.state&4) else self.cheat(1))
-        self.bind("2", lambda ev: self.full_auto_cheat(2) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(2) if bool(ev.state&4) else self.cheat(2))
-        self.bind("3", lambda ev: self.full_auto_cheat(3) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(3) if bool(ev.state&4) else self.cheat(3))
-        self.bind("4", lambda ev: self.full_auto_cheat(4) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(4) if bool(ev.state&4) else self.cheat(4))
-        self.bind("5", lambda ev: self.full_auto_cheat(5) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(5) if bool(ev.state&4) else self.cheat(5))
-        self.bind("6", lambda ev: self.full_auto_cheat(6) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(6) if bool(ev.state&4) else self.cheat(6))
-        self.bind("7", lambda ev: self.full_auto_cheat(7) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(7) if bool(ev.state&4) else self.cheat(7))
-        self.bind("8", lambda ev: self.full_auto_cheat(8) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(8) if bool(ev.state&4) else self.cheat(8))
-        self.bind("9", lambda ev: self.full_auto_cheat(9) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(9) if bool(ev.state&4) else self.cheat(9))
-        self.bind("0", lambda ev: self.full_auto_cheat(10) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(10) if bool(ev.state&4) else self.cheat(10))
-        self.bind("m", lambda ev: self.full_auto_cheat(self.root.game.N) if bool(ev.state&131072) and bool(ev.state&4) else self.auto_cheat(self.root.game.N) if bool(ev.state&4) else self.cheat(self.root.game.N))
+        self.bind("1", lambda _: self.cheat(1))
+        self.bind("2", lambda _: self.cheat(2))
+        self.bind("3", lambda _: self.cheat(3))
+        self.bind("4", lambda _: self.cheat(4))
+        self.bind("5", lambda _: self.cheat(5))
+        self.bind("6", lambda _: self.cheat(6))
+        self.bind("7", lambda _: self.cheat(7))
+        self.bind("8", lambda _: self.cheat(8))
+        self.bind("9", lambda _: self.cheat(9))
+        self.bind("0", lambda _: self.cheat(10))
         self.bind("<Control-Up>", lambda _: self.increment_tile_size())
         self.bind("<Control-Down>", lambda _: self.decrement_tile_size())
     
