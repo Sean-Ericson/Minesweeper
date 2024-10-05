@@ -45,7 +45,6 @@ def generate_mine_perms(n, m):
         for i in range(len(ls)):
             if ls[-(i+1)] == x:
                 return len(ls) - (i+1)
-        return None
 
     def slam_right(ls, x):
         count = len([i for i in ls if i == x])
@@ -264,7 +263,7 @@ class MS_AI:
             plt.figure(i+1)
             graph = components[i]
             scale = len(graph.nodes) / len(self.full_graph.nodes)
-            pos = nx.bipartite_layout(graph, [n for n in number_nodes if n in graph.nodes], align='horizontal', scale=scale)
+            pos = nx.bipartite_layout(graph, [n for n in number_nodes if n in graph.nodes], align='horizontal', scale=int(scale))
             for id,coord in pos.items():
                 x,y = coord
                 if id in number_nodes:
