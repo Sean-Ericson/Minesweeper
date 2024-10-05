@@ -1,0 +1,5 @@
+To-dos
+1) Auto-resize tiles on game window resize?
+2) X/Y/M setting saving
+3) Game saving
+4) AI SAT solve stuff
