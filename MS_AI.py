@@ -64,7 +64,8 @@ def generate_mine_perms(n, m):
     while not np.all(np.array(current) == np.array(final)):
         # Find the rightmost 0 to the left of the rightmost 1.
         rightmost0 = rightmost(current[:rightmost(current, 1)], 0)
-
+        if rightmost0 is None:
+            break
         # move a 1 from the right into that 0
         current = swap(current, rightmost0, current[rightmost0:].index(1) + rightmost0)
         yield current
@@ -485,7 +486,7 @@ class MS_AI:
         return min_mine_count, max_mine_count
 
     def do_probable_actions(self, samples, yolo_cutoff):
-        undiscovered_tiles = [i for i in range(self.game.N) if not (self.game.is_displayed(i) or i in self.full_graph.nodes)]
+        undiscovered_tiles = [tile.id for tile in self.game.field if not (tile.displayed or tile.id in self.full_graph.nodes)]
 
         # sample possible mine configurations
         components = [g.nodes for g in self.number_subgraphs]
@@ -541,6 +542,7 @@ class MS_AI:
             
         # No YOLO, just flag
         valid_flag_config = False
+        tiles_to_flag = []
         while not valid_flag_config:
             tiles_to_flag = []
             if any([x for x in configurations.values() if len(x) > 0]):

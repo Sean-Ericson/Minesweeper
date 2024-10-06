@@ -3,6 +3,7 @@ import random
 import time
 from enum import Enum
 from typing import Union
+from collections.abc import Callable
 
 class MS_Status(Enum):
     Ready = 0
@@ -12,7 +13,7 @@ class MS_Status(Enum):
 class EventSource:
     # https://stackoverflow.com/a/57069782
     def __init__(self):
-        self.listeners = []
+        self.listeners: list[Callable[..., T]] = []
 
     def __iadd__(self, listener):
         """Shortcut for using += to add a listener."""

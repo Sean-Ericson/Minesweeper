@@ -19,10 +19,9 @@ class MS_App():
         self.main_window = None
         self.settings_window = None
         self.game_window = None
-        self.settings = None
+        self.settings = MS_Settings()
 
     def run(self):
-        self.settings = MS_Settings()
         try:
             self.settings = self.get_settings()
         except:
