@@ -16,12 +16,6 @@ class MS_App():
     SETTINGS_FILE = "ms_settings.pk"
 
     def __init__(self):
-        self.main_window = None
-        self.settings_window = None
-        self.game_window = None
-        self.settings = None
-
-    def run(self):
         self.settings = MS_Settings()
         try:
             self.settings = self.get_settings()

@@ -12,7 +12,7 @@ class MS_Status(Enum):
 class EventSource[T]:
     # https://stackoverflow.com/a/57069782
     def __init__(self):
-        self.listeners: list[Callable[...,T]] = []
+        self.listeners: list[Callable[T]] = []
 
     def __iadd__(self, listener: Callable[...,T]):
         """Shortcut for using += to add a listener."""
