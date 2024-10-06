@@ -2,19 +2,19 @@
 import random
 import time
 from enum import Enum
-from typing import Union
+from typing import Callable, Union
 
 class MS_Status(Enum):
     Ready = 0
     Active = 1
     Complete = 2
 
-class EventSource:
+class EventSource[T]:
     # https://stackoverflow.com/a/57069782
     def __init__(self):
-        self.listeners = []
+        self.listeners: list[Callable[...,T]] = []
 
-    def __iadd__(self, listener):
+    def __iadd__(self, listener: Callable[...,T]):
         """Shortcut for using += to add a listener."""
         self.listeners.append(listener)
         return self
@@ -122,10 +122,10 @@ class MS_Game:
         self.field.initialize()
 
         # Set up events
-        self.e_TilesDisplayed = EventSource()
-        self.e_TileFlagChanged = EventSource()
-        self.e_GameComplete = EventSource()
-        self.e_GameReset = EventSource()
+        self.e_TilesDisplayed = EventSource[list[MS_Tile]]()
+        self.e_TileFlagChanged = EventSource[MS_Tile]()
+        self.e_GameComplete = EventSource[None]()
+        self.e_GameReset = EventSource[None]()
 
     def init_members(self):
         self.flags: int = self.m
