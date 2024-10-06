@@ -16,12 +16,16 @@ class MS_App():
     SETTINGS_FILE = "ms_settings.pk"
 
     def __init__(self):
+<<<<<<< HEAD
         self.main_window = None
         self.settings_window = None
         self.game_window = None
         self.settings = MS_Settings()
 
     def run(self):
+=======
+        self.settings = MS_Settings()
+>>>>>>> d908713c8f2e47c44b962646201e5a05e4117507
         try:
             self.settings = self.get_settings()
         except:
