@@ -10,27 +10,21 @@ class MS_Settings:
     DefaultTileSize = 10
     
     def __init__(self):
-        self.tile_size = MS_Settings.DefaultTileSize 
+        self.tile_size: int = MS_Settings.DefaultTileSize
+        self.game = None
 
 class MS_App():
     SETTINGS_FILE = "ms_settings.pk"
 
     def __init__(self):
-<<<<<<< HEAD
-        self.main_window = None
-        self.settings_window = None
         self.game_window = None
+        self.settings_window = None
         self.settings = MS_Settings()
-
-    def run(self):
-=======
-        self.settings = MS_Settings()
->>>>>>> d908713c8f2e47c44b962646201e5a05e4117507
         try:
-            self.settings = self.get_settings()
+            self.settings = self._get_settings()
         except:
             print("Settings file {} could not be loaded".format(MS_App.SETTINGS_FILE))
-            self.save_settings(self.settings)
+            self._save_settings(self.settings)
 
         self.main_window = tk.Tk()
         self.main_window.resizable(False, False)
@@ -39,31 +33,32 @@ class MS_App():
 
         # Menu bar
         menubar = tk.Menu(self.main_window)
-        menubar.add_command(label="Settings", command=self.open_settings_window)
+        menubar.add_command(label="Settings", command=self._open_settings_window)
+        if self.settings.game:
+            menubar.add_command(label="Load", command=self._load_saved_game)
         self.main_window.config(menu=menubar)
 
-        # Start main screen
+        # Main Frame
         main_frame = MS_MainFrame(self.main_window, self.settings)
-        main_frame.e_StartGameRequest += self.start_game
+        main_frame.e_StartGameRequest += self._open_game_window
         main_frame.pack()
 
         self.main_window.mainloop()
     
-    def start_game(self, x, y, m):
-        if not (self.game_window is None):
+    def _open_game_window(self, game_args:MS_GameArgs):
+        if self.game_window:
             self.game_window.destroy()
-        self.game_window = tk.Toplevel(self.main_window)
-        self.game_window.minsize(250, 100)
-        self.game_window.title("Minesweeper")
-        self.game_window.iconbitmap("resources\\mine.ico")
-
-        game_frame = MS_GameFrame(self.game_window, x, y, m, self.settings.tile_size)
-        game_frame.grid(row=0, column=0)
-        self.game_window.grid_rowconfigure(0, weight=1)
-        self.game_window.grid_columnconfigure(0, weight=1)
+        
+        # Create window
+        self.game_window = MS_GameWindow(self.main_window, game_args, self.settings.tile_size)
+        self.game_window.e_SaveGameRequest += self._SaveGameRequest
         self.game_window.mainloop()
 
-    def open_settings_window(self):
+    def _load_saved_game(self):
+        self._open_game_window(MS_GameArgs())
+        self.game_window.load_game(self.settings.game)
+
+    def _open_settings_window(self):
         if self.settings_window:
             self.settings_window.destroy()
         self.settings_window = tk.Toplevel(self.main_window)
@@ -73,21 +68,25 @@ class MS_App():
         self.settings_window.iconbitmap("resources\\mine.ico")
 
         settings_frame = MS_SettingsFrame(self.settings_window, self.settings)
-        settings_frame.e_SettingsUpdate += self.onSettingsUpdate
+        settings_frame.e_SettingsUpdate += self._settings_update
         settings_frame.pack()
         self.settings_window.mainloop()
 
-    def onSettingsUpdate(self, new_settings):
-        self.settings = new_settings
-        self.save_settings(self.settings)
-
-    def get_settings(self):
+    def _get_settings(self):
         with open(MS_App.SETTINGS_FILE, 'rb') as f:
             return pickle.load(f)
         
-    def save_settings(self, settings):
+    def _save_settings(self, settings):
         with open(MS_App.SETTINGS_FILE, 'wb') as f:
             pickle.dump(settings, f)
+
+    def _settings_update(self, new_settings):
+        self.settings = new_settings
+        self._save_settings(self.settings)
+
+    def _SaveGameRequest(self, game):
+        self.settings.game = game
+        self._save_settings(self.settings)
 
 class MS_MainFrame(tk.Frame):
     def __init__(self, root, settings: MS_Settings):
@@ -126,7 +125,7 @@ class MS_MainFrame(tk.Frame):
         self.yEntry.bind("<KeyRelease>", self._xyChange)
 
         # Start Button
-        self.startButton = tk.Button(self, width=12, text="Start", font=("MS Serif", 18), command=lambda: self.e_StartGameRequest.emit(self.X(), self.Y(), self.M()))
+        self.startButton = tk.Button(self, width=12, text="Start", font=("MS Serif", 18), command=lambda: self.e_StartGameRequest.emit(self.game_args()))
         self.startButton.grid(row=4, column=0, columnspan=2, sticky=tk.S, pady=(10, 0))
     
     def _xyValid(self, s: str) -> bool:
@@ -145,7 +144,8 @@ class MS_MainFrame(tk.Frame):
         return int(self.y.get())
     def M(self):
         return int(self.m.get())
-
+    def game_args(self):
+        return MS_GameArgs(self.X(), self.Y(), self.M())
 class MS_SettingsFrame(tk.Frame):
     def __init__(self, root, settings: MS_Settings):
         super().__init__(root, bd=10)
@@ -175,21 +175,31 @@ class MS_SettingsFrame(tk.Frame):
         self.settings.tile_size = int(self.tileSize.get())
         self.e_SettingsUpdate.emit(self.settings)
         self.root.destroy()
-        
-class MS_GameFrame(tk.Frame):
-    def __init__(self, root, x, y, mines, tile_size, *args, **kwargs):
-        super().__init__(root, *args, **kwargs)
+
+class MS_GameWindow(tk.Toplevel):
+    def __init__(self, root, game_args, tile_size):
+        super().__init__(master=root)
         self.root = root
+        self.minsize(250, 100)
+        self.title("Minesweeper")
+        self.iconbitmap("resources\\mine.ico")
+
+        # Menu bar
+        self.e_SaveGameRequest = EventSource()
+        menubar = tk.Menu(self)
+        menubar.add_command(label="Save", command=self._onSaveGameRequest)
+        self.config(menu=menubar)
 
         # Init members
-        self.x, self.y, self.mines = x, y, mines
+        self.x, self.y, self.mines = game_args.width, game_args.height, game_args.mines
+        self.name = None
 
         # Init game object
-        self.game = MS_Game(x, y, mines)
-        self.game.e_TilesDisplayed += self.onTilesDisplayed
-        self.game.e_TileFlagChanged += self.onTileFlagChanged
-        self.game.e_GameReset += self.onGameReset
-        self.game.e_GameComplete += self.onGameComplete
+        self.game = MS_Game(game_args)
+        self.game.e_TilesDisplayed += self._TilesDisplayed
+        self.game.e_TileFlagChanged += self._TileFlagChanged
+        self.game.e_GameReset += self._GameReset
+        self.game.e_GameComplete += self._GameComplete
 
         # Init AI object
         self.AI = MS_AI(self.game)
@@ -201,6 +211,9 @@ class MS_GameFrame(tk.Frame):
         # Layout window components
         self.header.grid(row=0, column=0, sticky=tk.W+tk.E)
         self.minefield.grid(row=1, column=0)
+        
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
         root.after(5, self.update)
 
@@ -209,10 +222,10 @@ class MS_GameFrame(tk.Frame):
         self.update_time()
         self.root.after(75, self.update)
 
-    def onTilesDisplayed(self, tiles):
+    def _TilesDisplayed(self, tiles):
         self.minefield.clear_tiles([tile.id for tile in tiles])
 
-    def onTileFlagChanged(self, tile):
+    def _TileFlagChanged(self, tile):
         # Update tile
         if tile.flagged:
             self.minefield.place_flag(tile.id)
@@ -222,15 +235,19 @@ class MS_GameFrame(tk.Frame):
         # Update flag counter
         self.header.update_flag_count(self.game.flags)
 
-    def onGameReset(self):
+    def _GameReset(self):
         self.AI.reset()
         self.update_reset()
 
-    def onGameComplete(self):
+    def _GameComplete(self):
         if self.game.game_won:
             self.win_game()
         else:
             self.lose_game()
+
+    def load_game(self, game: MS_Game):
+        self.game = game
+        self.minefield.new_field(recreate=True)
 
     def update_time(self):
         if not self.game.is_active():
@@ -268,6 +285,9 @@ class MS_GameFrame(tk.Frame):
 
     def set_thinking(self, thinking):
         self.header.update_thinking(thinking)
+
+    def _onSaveGameRequest(self):
+        self.e_SaveGameRequest.emit(game=self.game)
 
 class MS_GameFrame_Header(tk.Frame):
     def __init__(self, root, *args, **kwargs):
@@ -337,8 +357,8 @@ class MS_GameFrame_Field(tk.Canvas):
         return
     
     def set_bindings(self):
-        self.bind("<1>", self.onLeftClick)
-        self.bind("<3>", self.onRightClick)
+        self.bind("<1>", self._LeftClick)
+        self.bind("<3>", self._RightClick)
         self.bind("<Return>", lambda _: self.root.button_click())
         self.bind("r", lambda _: self.root.manual_reset())
         self.bind("s", lambda _: self.root.first_move())
@@ -482,7 +502,7 @@ class MS_GameFrame_Field(tk.Canvas):
     def show_number_graph(self):
         self.root.AI.display_number_graph()
 
-    def onLeftClick(self, event):
+    def _LeftClick(self, event):
         t = self.click_to_tile(event)
         game = self.root.game
 
@@ -512,7 +532,7 @@ class MS_GameFrame_Field(tk.Canvas):
 
         return
 
-    def onRightClick(self, event):
+    def _RightClick(self, event):
         t = self.click_to_tile(event)
         game = self.root.game
 
@@ -529,7 +549,6 @@ class MS_GameFrame_Field(tk.Canvas):
 
 def main():
     app = MS_App()
-    app.run()
 
 if __name__ == "__main__":
     main()

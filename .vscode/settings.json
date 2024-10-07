@@ -25,5 +25,8 @@
         "validatecommand",
         "workin",
         "yolo"
+    ],
+    "python.analysis.extraPaths": [
+        "D:\\Programs\\Anaconda3\\pkgs"
     ]
 }

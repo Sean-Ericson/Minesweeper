@@ -3,17 +3,25 @@ import random
 import time
 from enum import Enum
 from typing import Callable, Union
+from dataclasses import dataclass
 
 class MS_Status(Enum):
     Ready = 0
     Active = 1
     Complete = 2
 
+@dataclass
+class MS_GameArgs:
+    width: int = 2
+    height: int = 2
+    mines: int = 2
+
 class EventSource:
     # https://stackoverflow.com/a/57069782
     def __init__(self):
+        self.listeners = []
 
-    def __iadd__(self, listener: Callable[...,T]):
+    def __iadd__(self, listener):
         """Shortcut for using += to add a listener."""
         self.listeners.append(listener)
         return self
@@ -104,8 +112,8 @@ class MS_Game:
     """
     A Minesweeper game.
     """
-    def __init__(self, x: int, y: int, m: int):
-        x, y, m = int(x), int(y), int(m)
+    def __init__(self, args: MS_GameArgs):
+        x, y, m = args.width, args.height, args.mines
         if x < 4 or y < 4:
             raise ValueError("Field dimensions must be 4x4 or larger.")
         if not 1 <= m < x*y:
@@ -121,10 +129,10 @@ class MS_Game:
         self.field.initialize()
 
         # Set up events
-        self.e_TilesDisplayed = EventSource[list[MS_Tile]]()
-        self.e_TileFlagChanged = EventSource[MS_Tile]()
-        self.e_GameComplete = EventSource[None]()
-        self.e_GameReset = EventSource[None]()
+        self.e_TilesDisplayed = EventSource()
+        self.e_TileFlagChanged = EventSource()
+        self.e_GameComplete = EventSource()
+        self.e_GameReset = EventSource()
 
     def init_members(self):
         self.flags: int = self.m
@@ -354,3 +362,12 @@ class MS_Game:
 
         # Indicate clear event
         self.e_TilesDisplayed.emit(tiles=displayed_tiles)
+
+    def __getstate__(self):
+        print("I'm being pickled")
+        vals = self.__dict__
+        vals['e_TilesDisplayed'] = []
+        vals['e_TileFlageChanged'] = []
+        vals['e_GameReset'] = []
+        vals['e_GameComplete'] = []
+        return vals

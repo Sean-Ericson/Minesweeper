@@ -4,7 +4,6 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 import math
-from collections import defaultdict
 from Minesweeper import *
 from functools import reduce
 from itertools import combinations
