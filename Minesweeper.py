@@ -5,6 +5,8 @@ from enum import Enum
 from typing import Callable, Union
 from dataclasses import dataclass
 
+from sympy import false
+
 class MS_Status(Enum):
     Ready = 0
     Active = 1
@@ -12,9 +14,9 @@ class MS_Status(Enum):
 
 @dataclass
 class MS_GameArgs:
-    width: int = 2
-    height: int = 2
-    mines: int = 2
+    width: int = 4
+    height: int = 4
+    mines: int = 1
 
 class EventSource:
     # https://stackoverflow.com/a/57069782
@@ -25,6 +27,9 @@ class EventSource:
         """Shortcut for using += to add a listener."""
         self.listeners.append(listener)
         return self
+    
+    def clear(self):
+        self.listeners.clear()
 
     def emit(self, *args, **kwargs):
         for listener in self.listeners:
@@ -113,6 +118,7 @@ class MS_Game:
     A Minesweeper game.
     """
     def __init__(self, args: MS_GameArgs):
+        self.args = args
         x, y, m = args.width, args.height, args.mines
         if x < 4 or y < 4:
             raise ValueError("Field dimensions must be 4x4 or larger.")
@@ -137,10 +143,11 @@ class MS_Game:
     def init_members(self):
         self.flags: int = self.m
         self.status: MS_Status = MS_Status.Ready
-        self.start_time: float
-        self.game_won: bool
-        self.score: int
-        self.total_time: float
+        self.start_time: float = 0
+        self.game_won: bool = False
+        self.score: int = 0
+        self.total_time: float = 0
+        self.current_time:float = 0
 
     # Return str repr of the field
     def __str__(self) -> str:
@@ -177,7 +184,8 @@ class MS_Game:
             raise Exception("Game inactive")
 
         # Return the time
-        return time.time() - self.start_time
+        self.current_time = time.time() - self.start_time
+        return self.current_time
 
     # Get the final total time
     def get_total_time(self) -> float:
@@ -366,8 +374,8 @@ class MS_Game:
     def __getstate__(self):
         print("I'm being pickled")
         vals = self.__dict__
-        vals['e_TilesDisplayed'] = []
-        vals['e_TileFlageChanged'] = []
-        vals['e_GameReset'] = []
-        vals['e_GameComplete'] = []
+        vals['e_TilesDisplayed'].clear()
+        vals['e_TileFlagChanged'].clear()
+        vals['e_GameReset'].clear()
+        vals['e_GameComplete'].clear()
         return vals

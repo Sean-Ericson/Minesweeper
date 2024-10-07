@@ -55,8 +55,16 @@ class MS_App():
         self.game_window.mainloop()
 
     def _load_saved_game(self):
-        self._open_game_window(MS_GameArgs())
+        if self.game_window:
+            self.game_window.destroy()
+        
+        self.settings = self._get_settings()
+        args = self.settings.game.args
+        # Create window
+        self.game_window = MS_GameWindow(self.main_window, args, self.settings.tile_size)
+        self.game_window.e_SaveGameRequest += self._SaveGameRequest
         self.game_window.load_game(self.settings.game)
+        self.game_window.mainloop()
 
     def _open_settings_window(self):
         if self.settings_window:
@@ -146,6 +154,7 @@ class MS_MainFrame(tk.Frame):
         return int(self.m.get())
     def game_args(self):
         return MS_GameArgs(self.X(), self.Y(), self.M())
+
 class MS_SettingsFrame(tk.Frame):
     def __init__(self, root, settings: MS_Settings):
         super().__init__(root, bd=10)
@@ -196,17 +205,14 @@ class MS_GameWindow(tk.Toplevel):
 
         # Init game object
         self.game = MS_Game(game_args)
-        self.game.e_TilesDisplayed += self._TilesDisplayed
-        self.game.e_TileFlagChanged += self._TileFlagChanged
-        self.game.e_GameReset += self._GameReset
-        self.game.e_GameComplete += self._GameComplete
+        self._init_game_handlers()
 
         # Init AI object
         self.AI = MS_AI(self.game)
 
         # Init window components
-        self.header = MS_GameFrame_Header(self)
-        self.minefield = MS_GameFrame_Field(self, tile_size=tile_size)
+        self.header = MS_GameWindow_Header(self)
+        self.minefield = MS_GameWindow_Field(self, tile_size=tile_size)
 
         # Layout window components
         self.header.grid(row=0, column=0, sticky=tk.W+tk.E)
@@ -216,6 +222,12 @@ class MS_GameWindow(tk.Toplevel):
         self.grid_columnconfigure(0, weight=1)
 
         root.after(5, self.update)
+
+    def _init_game_handlers(self, game=None):
+        self.game.e_TilesDisplayed += self._TilesDisplayed
+        self.game.e_TileFlagChanged += self._TileFlagChanged
+        self.game.e_GameReset += self._GameReset
+        self.game.e_GameComplete += self._GameComplete
 
     def update(self):
         self.minefield.focus_set()
@@ -247,7 +259,14 @@ class MS_GameWindow(tk.Toplevel):
 
     def load_game(self, game: MS_Game):
         self.game = game
-        self.minefield.new_field(recreate=True)
+        self._init_game_handlers()
+        self.game.start_time = time.time() - self.game.current_time
+        self.x, self.y, self.mines = game.x, game.y, game.m
+        self.minefield.new_field()
+        self.minefield.clear_tiles([t.id for t in game.field.tiles if t.displayed])
+        for t in game.get_all_flagged():
+            self.minefield.place_flag(t)
+        self.header.update_flag_count(game.flags)
 
     def update_time(self):
         if not self.game.is_active():
@@ -287,9 +306,10 @@ class MS_GameWindow(tk.Toplevel):
         self.header.update_thinking(thinking)
 
     def _onSaveGameRequest(self):
+        self.game.get_cur_time()
         self.e_SaveGameRequest.emit(game=self.game)
 
-class MS_GameFrame_Header(tk.Frame):
+class MS_GameWindow_Header(tk.Frame):
     def __init__(self, root, *args, **kwargs):
         super().__init__(root, *args, **kwargs)
         self.configure(bd=5)
@@ -339,7 +359,7 @@ class MS_GameFrame_Header(tk.Frame):
         self.update_flag_count(self.root.game.m)
         self.time_counter.configure(text='000')
 
-class MS_GameFrame_Field(tk.Canvas):
+class MS_GameWindow_Field(tk.Canvas):
     NumberColors = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
     
     def __init__(self, root, tile_size, *args, **kwargs):
@@ -350,7 +370,7 @@ class MS_GameFrame_Field(tk.Canvas):
         self.tile_size = tile_size
         self.display_tile_ids = False
         self.death_tile = None
-        self.number_colors = MS_GameFrame_Field.NumberColors
+        self.number_colors = MS_GameWindow_Field.NumberColors
         
         self.set_bindings()
         self.new_field()
