@@ -135,7 +135,7 @@ class MS_AI:
         if tile.mine_count == 0:
             return
         
-        neighbor_tiles = self.game.field.get_neighbors(tile.id)
+        neighbor_tiles = self.game.field.neighbors(tile.id)
         flagged_neighbors = len([n for n in neighbor_tiles if n.flagged])
         tile.effective_count = tile.mine_count - flagged_neighbors
 
@@ -445,11 +445,11 @@ class MS_AI:
 
     def perform_actions(self, flags, clears):
         for id in flags:
-            self.game.flag(int(id))
+            self.game.toggle_flag(int(id))
         for id in clears:
             if not self.game.is_active():
                 return
-            self.game.clear(int(id))
+            self.game.clear_tile(int(id))
 
     def do_deductive_action(self, max_level):
         # flag/clear as much as possible

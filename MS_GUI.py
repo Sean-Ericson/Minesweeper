@@ -144,7 +144,7 @@ class MS_MainFrame(tk.Frame):
     
     def _xyChange(self, ev):
         if self.M() >= self.X() * self.Y():
-            self.m.set(str(self.X() * self.Y() - 1))
+            self.m.set(str(max(self.X() * self.Y() - 1, 1)))
         
     def X(self):
         return int(self.x.get())
@@ -264,7 +264,7 @@ class MS_GameWindow(tk.Toplevel):
         self.x, self.y, self.mines = game.x, game.y, game.m
         self.minefield.new_field()
         self.minefield.clear_tiles([t.id for t in game.field.tiles if t.displayed])
-        for t in game.get_all_flagged():
+        for t in game.flagged_tile_ids():
             self.minefield.place_flag(t)
         self.header.update_flag_count(game.flags)
 
@@ -296,7 +296,7 @@ class MS_GameWindow(tk.Toplevel):
 
     def win_game(self):
         self.header.update_win()
-        self.minefield.highlight_flags(self.game.get_all_flagged())
+        self.minefield.highlight_flags(self.game.flagged_tile_ids())
 
     def update_reset(self):
         self.header.update_reset()
