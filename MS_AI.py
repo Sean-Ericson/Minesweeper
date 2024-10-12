@@ -98,32 +98,32 @@ class Number_Subgraph:
 
 class MS_AI:
     def __init__(self, game : MS_Game):
-        game.e_TilesDisplayed += self.onTilesDisplayed
-        game.e_TileFlagChanged += self.onTileFlagChanged
-        game.e_GameReset += self.onGameReset
+        game.e_TilesDisplayed += self.handleTilesDisplayed
+        game.e_TileFlagChanged += self.handleTileFlagChanged
+        game.e_GameReset += self.handleGameReset
         self.game = game
 
         self.full_graph = nx.Graph()
         self.number_graph = nx.Graph()
         self.number_subgraphs = []
 
-    def onTilesDisplayed(self, tiles):
+    def handleTilesDisplayed(self, tiles: list[MS_Tile]):
         if not self.game.is_active():
             return
         # update number graph after full graph
         for tile in tiles:
-            if self.game.is_mined(tile.id):
+            if tile.mined:
                 return
             self.update_full_graph(tile)
             self.update_number_graph(tile)
         self.update_number_subgraphs()
 
-    def onTileFlagChanged(self, tile):
+    def handleTileFlagChanged(self, tile):
         self.flag_update_full_graph(tile.id)
         self.flag_update_number_graph(tile.id)
         self.update_number_subgraphs()
 
-    def onGameReset(self):
+    def handleGameReset(self):
         self.reset()
 
     def update_full_graph(self, tile):
@@ -174,9 +174,9 @@ class MS_AI:
     def flag_update_full_graph(self, id):
         if not id in self.full_graph.nodes:
             return
-        self.full_graph.nodes[id]["flagged"] = self.game.is_flagged(id)
+        self.full_graph.nodes[id]["flagged"] = self.game.field[id].flagged
         for neb in self.full_graph[id]:
-            self.full_graph.nodes[neb]["effective_count"] += -1 if self.game.is_flagged(id) else 1
+            self.full_graph.nodes[neb]["effective_count"] += -1 if self.game.field[id].flagged else 1
 
     def flag_update_number_graph(self, id):
         if not id in self.full_graph.nodes:
@@ -291,7 +291,7 @@ class MS_AI:
 
         number_nodes = [id for id,attr in self.full_graph.nodes(data=True) if attr["displayed"]]
         for id in number_nodes:
-            unflagged_neighbors = [id for id in self.full_graph[id] if not self.game.is_flagged(id)]
+            unflagged_neighbors = [id for id in self.full_graph[id] if not self.game.field[id].flagged]
 
             if self.full_graph.nodes.data()[id]["effective_count"] == 0:
                 tiles_to_display += [neb for neb in unflagged_neighbors if not neb in tiles_to_display]
@@ -577,7 +577,7 @@ class MS_AI:
         # If the game isn't started, make first move
         if self.game.is_ready():
             self.game.start_game()
-            self.game.clear_random_empty()
+            self.game.do_first_move()
 
         while self.game.is_active():
             self.do_deductive_action(max_level=max_level)

@@ -2,10 +2,8 @@
 import random
 import time
 from enum import Enum
-from typing import Callable, Union
+from typing import Union, Any
 from dataclasses import dataclass
-
-from sympy import false, true
 
 class MS_Status(Enum):
     """
@@ -133,7 +131,6 @@ class MS_Field:
         """
         return y*self.x + x
 
-
 class MS_Game:
     """
     A Minesweeper game.
@@ -179,7 +176,7 @@ class MS_Game:
             s += l+'\n'
         return s
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         print("I'm being pickled")
         vals = self.__dict__
         vals['e_TilesDisplayed'].clear()
@@ -225,7 +222,7 @@ class MS_Game:
         self.start_time: float = 0
         self.game_won: bool = False
         self.score: int = 0
-        self.total_time: float = 0
+        self.final_time: float = 0
         self.current_time:float = 0
 
     def _reveal_tile(self, n) -> None:
@@ -239,17 +236,15 @@ class MS_Game:
     def _set_game_complete(self, game_won, score) -> None:
         """
         Set game status to complete, calculate total time.
-        Save save game_won value
+        Save game_won and score.
         Raise GameComplete event.
         """
-        self.total_time = time.time() - self.start_time
+        self.final_time = time.time() - self.start_time
         self.status = MS_Status.Complete
         self.score = score
         self.game_won = game_won
         self.e_GameComplete.emit()
 
-        # Try to clear tile n
-    
     def clear_tile(self, n) -> None:
         """
         Reveal tile number n.
@@ -266,7 +261,7 @@ class MS_Game:
             return
 
         # If you've is_cleared a mine, bummer
-        if self.is_mined(n):
+        if tile.mined:
             self.detonated = True
             self._reveal_tile(n)
             self._set_game_complete(game_won=False, score=0)
@@ -275,7 +270,7 @@ class MS_Game:
         else:
             self._cascade_clear(n)
 
-    def clear_unflagged(self):
+    def clear_unflagged(self) -> None:
         """
         Clear all unflagged tiles. Only allowed when all flags are placed. \n
         Set game complete with game won iff all flags placed correctly and score given by number of correctly placed flags. \n
@@ -291,11 +286,10 @@ class MS_Game:
             tile = self.field[i]
             if tile.displayed:
                 continue
-            if self.is_flagged(i):
-                if not tile.mined:
-                    bad_flags.append(i)
+            if tile.flagged and not tile.mined:
+                bad_flags.append(i)
             else:
-                if self.is_mined(i):
+                if tile.mined:
                     detonated.append(i)
                 else:
                     displayed_tiles.append(tile)
@@ -307,91 +301,14 @@ class MS_Game:
         # Indicate clear event
         self.e_TilesDisplayed.emit(tiles=displayed_tiles)
 
-    def reset(self):
-        self._init_members()
-        self.field.initialize()
-        self.e_GameReset.emit()
-
-    # Get the elapsed time
-    def get_cur_time(self) -> float:
-        # Current time only valid for active game
-        if self.status != MS_Status.Active:
-            raise Exception("Game inactive")
-
-        # Return the time
-        self.current_time = time.time() - self.start_time
-        return self.current_time
-
-    # Get the final total time
-    def get_total_time(self) -> float:
-        # Total time only valid for finished games
-        if self.status != MS_Status.Complete:
-            raise Exception("Game not complete")
-        return self.total_time
-
-    def is_ready(self) -> bool:
-        return self.status == MS_Status.Ready
-
-    def is_active(self) -> bool:
-        return self.status == MS_Status.Active
-
-    def is_complete(self) -> bool:
-        return self.status == MS_Status.Complete
-
-    def start_game(self):
+    def do_first_move(self) -> None:
+        """
+        Randomly reveal an un-mined tile as the first move of the game.
+        Selects a tile with no neighbor mines if possible.
+        """
         if self.status != MS_Status.Ready:
-            raise Exception()
-        self.status = MS_Status.Active
-        self.start_time = time.time()
-
-    def is_mined(self, n) -> bool:
-        return self.field[n].mined
-
-    # Check if a tile is flagged
-    def is_flagged(self, n) -> bool:
-        return self.field[n].flagged
-
-    def flagged_tile_ids(self) -> list[int]:
-        return [n for n in range(self.N) if self.field[n].flagged]
-
-    def unflagged_mines(self) -> list[int]:
-        return [i for i in range(self.N) if self.is_mined(i) and not self.is_flagged(i)]
-    
-    def misplaced_flags(self) -> list[int]:
-        return [i for i in range(self.N) if self.is_flagged(i) and not self.is_mined(i)]
-
-    # Toggle the flag setting on tile n
-    def toggle_flag(self, n):
-        if self.status != MS_Status.Active:
-            raise Exception("Game not active")
-
-        # You can't put a flag there!
-        if not 0 <= n < self.N:
-            raise IndexError()
-
-        # Get the tile we're workin' with
-        tile = self.field[n]
-
-        # Can't flag a displayed tile
-        if tile.displayed:
-            return
-
-        if tile.flagged:
-            self.flags += 1 # unflagging tile
-        else:
-            if self.flags > 0:
-                self.flags -= 1 # flagging tile
-            else:
-                return # no flags left to place
-
-        tile.flagged = not tile.flagged # actually change tile flag state
-        
-        for neb in self.field.neighbors(n):
-            neb.effective_count += 1 if tile.flagged else -1 # update effective count of neighbors
-        self.e_TileFlagChanged.emit(tile)
-
-    # For the first move, open a random empty tile
-    def clear_random_empty(self):
+            raise Exception("Game must not be Active or Complete.")
+        self.start_game()
         zero_tiles = []
         number_tiles = []
         for i in range(self.N):
@@ -406,3 +323,94 @@ class MS_Game:
             self.clear_tile(random.choice(zero_tiles))
         elif len(number_tiles) > 0:
             self.clear_tile(random.choice(number_tiles))
+
+    def get_flagged_tile_ids(self) -> list[int]:
+        """Get the IDs of all tiles that are currently flagged."""
+        return [n for n in range(self.N) if self.field[n].flagged]
+    
+    def get_misplaced_flag_tile_ids(self) -> list[int]:
+        """Get the IDs of all tiles that are flagged but do not have a mine."""
+        return [tile.id for tile in self.field if tile.flagged and not tile.mined]
+
+    def get_time(self) -> float:
+        """
+        If the game is active, compute and return the current time. 
+        Otherwise, return the final time.
+        """
+        # Current time only valid for active game
+        if self.status == MS_Status.Ready:
+            raise Exception("Game not run or already reset.")
+
+        # Return the time
+        if self.status == MS_Status.Active:
+            self.current_time = time.time() - self.start_time
+            return self.current_time
+        
+        return self.final_time
+    
+    def get_unflagged_mine_tile_ids(self) -> list[int]:
+        """Get the IDs of all tiles that have mines but are unflagged."""
+        return [tile.id for tile in self.field if tile.mined and not tile.flagged]
+
+    def is_active(self) -> bool:
+        """True iff the game status is Active."""
+        return self.status == MS_Status.Active
+
+    def is_complete(self) -> bool:
+        """True iff the game status is Complete."""
+        return self.status == MS_Status.Complete
+
+    def is_ready(self) -> bool:
+        """True iff the game status is Ready."""
+        return self.status == MS_Status.Ready
+
+    def reset(self) -> None:
+        """
+        Reset the game. Raise the GameReset event.
+        """
+        self._init_members()
+        self.field.initialize()
+        self.e_GameReset.emit()
+
+    def start_game(self) -> None:
+        """Start the game: set status to active and record initial time."""
+        if self.status != MS_Status.Ready:
+            raise Exception()
+        self.status = MS_Status.Active
+        self.start_time = time.time()
+
+    def toggle_flag(self, n) -> None:
+        """
+        Toggle the flagged status of tile number n.
+        Raise the TileFlagChanged event.
+        """
+        if self.status != MS_Status.Active:
+            raise Exception("Game not active")
+
+        # You can't put a flag there!
+        if not 0 <= n < self.N:
+            raise IndexError()
+
+        # Get the tile we're workin' with
+        tile = self.field[n]
+
+        # Can't flag a displayed tile
+        if tile.displayed:
+            return
+
+        # Can't flag if we're out of flags
+        if not tile.flagged and self.flags == 0:
+            return 
+        
+        # Change flag count
+        self.flags += 1 if tile.flagged else -1
+
+        # Actually change tile flag state
+        tile.flagged = not tile.flagged
+        
+        # Update effective count of neighbors
+        for neb in self.field.neighbors(n):
+            neb.effective_count += 1 if tile.flagged else -1 
+        
+        # Raise event
+        self.e_TileFlagChanged.emit(tile)

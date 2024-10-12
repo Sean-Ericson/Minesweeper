@@ -4,7 +4,6 @@ from Minesweeper import *
 from MS_AI import MS_AI
 import tkinter as tk
 import pickle
-from typing import Optional
 
 class MS_Settings:
     DefaultTileSize = 10
@@ -264,14 +263,14 @@ class MS_GameWindow(tk.Toplevel):
         self.x, self.y, self.mines = game.x, game.y, game.m
         self.minefield.new_field()
         self.minefield.clear_tiles([t.id for t in game.field.tiles if t.displayed])
-        for t in game.flagged_tile_ids():
+        for t in game.get_flagged_tile_ids():
             self.minefield.place_flag(t)
         self.header.update_flag_count(game.flags)
 
     def update_time(self):
         if not self.game.is_active():
             return
-        time = self.game.get_cur_time()
+        time = self.game.get_time()
         self.header.set_time(int(time))
 
     def button_click(self):
@@ -284,19 +283,19 @@ class MS_GameWindow(tk.Toplevel):
         self.game.reset()
 
     def first_move(self):
-        if self.game.is_ready():
-            self.game.start_game()
-        self.game.clear_random_empty()
+        if not self.game.is_ready():
+            return
+        self.game.do_first_move()
 
     def lose_game(self):
         self.header.update_lose()
-        self.minefield.reveal_mines(self.game.unflagged_mines())
-        self.minefield.reveal_bad_flags(self.game.misplaced_flags())
+        self.minefield.reveal_mines(self.game.get_unflagged_mine_tile_ids())
+        self.minefield.reveal_bad_flags(self.game.get_misplaced_flag_tile_ids())
         return
 
     def win_game(self):
         self.header.update_win()
-        self.minefield.highlight_flags(self.game.flagged_tile_ids())
+        self.minefield.highlight_flags(self.game.get_flagged_tile_ids())
 
     def update_reset(self):
         self.header.update_reset()
@@ -306,7 +305,7 @@ class MS_GameWindow(tk.Toplevel):
         self.header.update_thinking(thinking)
 
     def _onSaveGameRequest(self):
-        self.game.get_cur_time()
+        self.game.get_time()
         self.e_SaveGameRequest.emit(game=self.game)
 
 class MS_GameWindow_Header(tk.Frame):
@@ -443,14 +442,15 @@ class MS_GameWindow_Field(tk.Canvas):
 
     def clear_tiles(self, ts):
         game = self.root.game
-        for tile in ts:
-            if self.root.game.is_mined(tile):
-                self.death_tile = tile
+        for t in ts:
+            tile = game.field[t]
+            if tile.mined:
+                self.death_tile = t
                 return
-            num = game.field[tile].mine_count
+            num = tile.mine_count
             if num != 0:
-                self.itemconfigure(self.texts[tile], text=str(num), fill=self.number_colors[num-1])
-            self.itemconfigure(self.tiles[tile], fill='white')
+                self.itemconfigure(self.texts[t], text=str(num), fill=self.number_colors[num-1])
+            self.itemconfigure(self.tiles[t], fill='white')
         self.update()
 
     def place_flag(self, t):
@@ -484,12 +484,12 @@ class MS_GameWindow_Field(tk.Canvas):
             return
         if game.is_ready():
             game.start_game()
-            game.clear_random_empty()
+            game.do_first_move()
         flags, clears = ai.level_n_actions(n)
         for id in flags:
-            game.flag(id)
+            game.toggle_flag(id)
         for id in clears:
-            game.clear(id)
+            game.clear_tile(id)
         progress = (len(flags) > 0) or (len(clears) > 0)
         print("Cheat complete ({})".format("progress made" if progress else "no progress"))
         self.root.set_thinking(thinking=False)
@@ -537,15 +537,15 @@ class MS_GameWindow_Field(tk.Canvas):
         # check for click on number
         tile = game.field[t]
         if tile.displayed:
-            nebs = game.field.get_neighbors(t)
+            nebs = game.field.neighbors(t)
             flag_count = len([neb for neb in nebs if neb.flagged])
             unflagged_nebs = [neb for neb in nebs if not neb.displayed and not neb.flagged]
             if tile.mine_count == flag_count:
                 for neb in unflagged_nebs:
-                    game.clear(neb.id)
+                    game.clear_tile(neb.id)
 
         # clear tile
-        game.clear(t)
+        game.clear_tile(t)
 
         # Update
         self.root.update()
@@ -562,7 +562,7 @@ class MS_GameWindow_Field(tk.Canvas):
             raise Exception("bad click?")
 
         # Flag tile in game
-        game.flag(t)
+        game.toggle_flag(t)
 
         # Update
         self.root.update()
