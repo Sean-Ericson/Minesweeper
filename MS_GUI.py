@@ -6,16 +6,22 @@ import tkinter as tk
 import pickle
 
 class MS_Settings:
+    """
+    Minesweeper game settings to be saved to file.
+    """
     DefaultTileSize = 10
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.tile_size: int = MS_Settings.DefaultTileSize
         self.game = None
 
 class MS_App():
+    """
+    The Minesweeper application. Just instantiate to run.
+    """
     SETTINGS_FILE = "ms_settings.pk"
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.game_window = None
         self.settings_window = None
         self.settings = MS_Settings()
@@ -44,7 +50,38 @@ class MS_App():
 
         self.main_window.mainloop()
     
-    def _open_game_window(self, game_args:MS_GameArgs):
+    def _get_settings(self):# -> Any:
+        """
+        Open the settings file and return the un-pickled result.
+        """
+        with open(MS_App.SETTINGS_FILE, 'rb') as f:
+            return pickle.load(f)
+
+    def _load_saved_game(self) -> None:
+        """
+        Load the game saved in the settings object
+        """
+        # Destroy window if already open
+        if self.game_window:
+            self.game_window.destroy()
+        
+        # Get the saved game's args
+        self.settings = self._get_settings()
+        if self.settings.game is None:
+            return
+        args = self.settings.game.args
+
+        # Create window
+        self.game_window = MS_GameWindow(self.main_window, args, self.settings.tile_size)
+        self.game_window.e_SaveGameRequest += self._SaveGameRequest
+        self.game_window.load_game(self.settings.game)
+        self.game_window.mainloop()
+    
+    def _open_game_window(self, game_args: MS_GameArgs) -> None:
+        """
+        Open the game window with the given game arguments.
+        """
+        # Destroy window if already open
         if self.game_window:
             self.game_window.destroy()
         
@@ -53,46 +90,36 @@ class MS_App():
         self.game_window.e_SaveGameRequest += self._SaveGameRequest
         self.game_window.mainloop()
 
-    def _load_saved_game(self):
-        if self.game_window:
-            self.game_window.destroy()
-        
-        self.settings = self._get_settings()
-        args = self.settings.game.args
-        # Create window
-        self.game_window = MS_GameWindow(self.main_window, args, self.settings.tile_size)
-        self.game_window.e_SaveGameRequest += self._SaveGameRequest
-        self.game_window.load_game(self.settings.game)
-        self.game_window.mainloop()
-
-    def _open_settings_window(self):
+    def _open_settings_window(self) -> None:
+        """Open the settings window."""
+        # Destroy window if already open
         if self.settings_window:
             self.settings_window.destroy()
+        
+        # Create window
         self.settings_window = tk.Toplevel(self.main_window)
         self.settings_window.geometry("+{:d}+{:d}".format(self.main_window.winfo_x(), self.main_window.winfo_y()))
         self.settings_window.transient(self.main_window)
         self.settings_window.title("Settings")
         self.settings_window.iconbitmap("resources\\mine.ico")
-
         settings_frame = MS_SettingsFrame(self.settings_window, self.settings)
-        settings_frame.e_SettingsUpdate += self._settings_update
+        settings_frame.e_SettingsUpdate += self._SettingsUpdate
         settings_frame.pack()
         self.settings_window.mainloop()
 
-    def _get_settings(self):
-        with open(MS_App.SETTINGS_FILE, 'rb') as f:
-            return pickle.load(f)
-        
-    def _save_settings(self, settings):
+    def _SaveGameRequest(self, game) -> None:
+        """Handle the game window SaveGameRequest event."""
+        self.settings.game = game
+        self._save_settings(self.settings)
+
+    def _save_settings(self, settings) -> None:
+        """Save the given settings to file"""
         with open(MS_App.SETTINGS_FILE, 'wb') as f:
             pickle.dump(settings, f)
 
-    def _settings_update(self, new_settings):
+    def _SettingsUpdate(self, new_settings) -> None:
+        """Handle the settings window SettingsUpdate event"""
         self.settings = new_settings
-        self._save_settings(self.settings)
-
-    def _SaveGameRequest(self, game):
-        self.settings.game = game
         self._save_settings(self.settings)
 
 class MS_MainFrame(tk.Frame):
