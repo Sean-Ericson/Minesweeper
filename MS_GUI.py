@@ -1,5 +1,4 @@
 #Minesweeper GUI by Sean Ericson
-
 from Minesweeper import *
 from MS_AI import MS_AI
 from typing import Union, Any
@@ -101,6 +100,7 @@ class MS_App():
         # Create window
         self.game_window = MS_GameWindow(self.main_window, game_args, self.settings.tile_size)
         self.game_window.e_SaveGameRequest += self._MS_GameWindow_SaveGameRequest
+        self.game_window.focus_set()
         self.game_window.mainloop()
 
     def _open_settings_window(self) -> None:
@@ -240,16 +240,40 @@ class MS_GameWindow(tk.Toplevel):
 
         # Init window components
         self.header = MS_GameWindow_Header(self)
-        self.minefield = MS_GameWindow_Field(self, tile_size=tile_size)
+        self.header.e_MainButtonClicked += self._MS_GameWindow_Header_MainButtonClicked
+        self.field = MS_GameWindow_Field(self, self.x, self.y, tile_size=tile_size)
+        self.field.e_TileLeftClick += self._MS_GameWindow_Field_TileLeftClick
+        self.field.e_TileRightClick += self._MS_GameWindow_Field_TileRightClick
 
         # Layout window components
         self.header.grid(row=0, column=0, sticky=tk.W+tk.E)
-        self.minefield.grid(row=1, column=0)
+        self.field.grid(row=1, column=0)
         
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
+        self._init_bindings()
         root.after(5, self.update)
+
+    def _init_bindings(self) -> None:
+        self.bind("<Return>", lambda _: self._MS_GameWindow_Header_MainButtonClicked())
+        self.bind("n", lambda _: self.field.toggle_tile_ids())
+        self.bind("r", lambda _: self.manual_reset())
+        self.bind("s", lambda _: self.first_move())
+        self.bind("<Control-g>", lambda _: self.AI.display_full_graph())
+        self.bind("<Shift-G>", lambda _: self.AI.display_full_graph())
+        self.bind("<Control-Up>", lambda _: self.field.tile_size_increment())
+        self.bind("<Control-Down>", lambda _: self.field.tile_size_decrement())
+        self.bind("1", lambda _: self.cheat(1))
+        self.bind("2", lambda _: self.cheat(2))
+        self.bind("3", lambda _: self.cheat(3))
+        self.bind("4", lambda _: self.cheat(4))
+        self.bind("5", lambda _: self.cheat(5))
+        self.bind("6", lambda _: self.cheat(6))
+        self.bind("7", lambda _: self.cheat(7))
+        self.bind("8", lambda _: self.cheat(8))
+        self.bind("9", lambda _: self.cheat(9))
+        self.bind("0", lambda _: self.cheat(10))
 
     def _init_game_handlers(self) -> None:
         self.game.e_TilesDisplayed += self._MS_Game_TilesDisplayed
@@ -258,14 +282,14 @@ class MS_GameWindow(tk.Toplevel):
         self.game.e_GameComplete += self._MS_Game_GameComplete
 
     def _MS_Game_TilesDisplayed(self, tiles: list[MS_Tile]) -> None:
-        self.minefield.clear_tiles([tile.id for tile in tiles])
+        self.field.clear_tiles([tile for tile in tiles])
 
     def _MS_Game_TileFlagChanged(self, tile: MS_Tile) -> None:
         # Update tile
         if tile.flagged:
-            self.minefield.place_flag(tile.id)
+            self.field.set_tile_flagged(tile.id)
         else:
-            self.minefield.remove_flag(tile.id)
+            self.field.set_tile_unflagged(tile.id)
         
         # Update flag counter
         self.header.update_flag_count(self.game.flags)
@@ -280,9 +304,56 @@ class MS_GameWindow(tk.Toplevel):
         else:
             self.lose_game()
 
+    def _MS_GameWindow_Field_TileLeftClick(self, tile_loc) -> None:
+        if self.game.status == MS_Status.Complete:
+            return
+        if not self.game.field.is_valid_loc(*tile_loc):
+            raise Exception("bad click?")
+
+        if self.game.is_ready():
+            self.game.start_game()
+
+        # check for click on number
+        tile = self.game.field[tile_loc]
+        if tile.displayed:
+            nebs = self.game.field.neighbors(tile.id)
+            flag_count = len([neb for neb in nebs if neb.flagged])
+            unflagged_nebs = [neb for neb in nebs if not neb.displayed and not neb.flagged]
+            if tile.mine_count == flag_count:
+                for neb in unflagged_nebs:
+                    self.game.clear_tile(neb.id)
+
+        # clear tile
+        self.game.clear_tile(tile.id)
+
+        # Update
+        self.update()
+
+    def _MS_GameWindow_Field_TileRightClick(self, tile_loc):
+        if self.game.status == MS_Status.Complete:
+            return
+        if not self.game.field.is_valid_loc(*tile_loc):
+            raise Exception("bad click?")
+
+        # Flag tile in game
+        self.game.toggle_flag(self.game.field.tile_num(*tile_loc))
+
+        # Update
+        self.root.update()
+
+    def _MS_GameWindow_Header_MainButtonClicked(self) -> None:
+        if self.game.is_active():
+            self.game.clear_unflagged()
+        else:
+            self.game.reset()
+
     def _onSaveGameRequest(self) -> None:
         self.game.get_time()
         self.e_SaveGameRequest.emit(game=self.game)
+
+    def _update_reset(self) -> None:
+        self.header.update_reset()
+        self.field.update_reset()
 
     def _update_time(self) -> None:
         if not self.game.is_active():
@@ -290,226 +361,13 @@ class MS_GameWindow(tk.Toplevel):
         time = self.game.get_time()
         self.header.set_time(int(time))
 
-    def load_game(self, game: MS_Game) -> None:
-        self.game = game
-        self._init_game_handlers()
-        self.game.start_time = time.time() - self.game.current_time
-        self.x, self.y, self.mines = game.x, game.y, game.m
-        self.minefield.new_field()
-        self.minefield.clear_tiles([t.id for t in game.field.tiles if t.displayed])
-        for t in game.get_flagged_tile_ids():
-            self.minefield.place_flag(t)
-        self.header.update_flag_count(game.flags)
-
-    def update(self) -> None:
-        self.minefield.focus_set()
-        self._update_time()
-        self.root.after(75, self.update)
-
-    def button_click(self) -> None:
-        if self.game.is_active():
-            self.game.clear_unflagged()
-        else:
-            self.game.reset()
-
-    def first_move(self) -> None:
-        if not self.game.is_ready():
+    def cheat(self, n) -> None:
+        if self.game.is_complete():
             return
-        self.game.do_first_move()
-
-    def lose_game(self) -> None:
-        self.header.update_lose()
-        self.minefield.reveal_mines(self.game.get_unflagged_mine_tile_ids())
-        self.minefield.reveal_bad_flags(self.game.get_misplaced_flag_tile_ids())
-
-    def win_game(self) -> None:
-        self.header.update_win()
-        self.minefield.highlight_flags(self.game.get_flagged_tile_ids())
-
-    def manual_reset(self) -> None:
-        self.game.reset()
-
-    def _update_reset(self) -> None:
-        self.header.update_reset()
-        self.minefield.update_reset()
-
-    def set_thinking(self, thinking) -> None:
-        self.header.update_thinking(thinking)
-
-class MS_GameWindow_Header(tk.Frame):
-    def __init__(self, root, *args, **kwargs):
-        super().__init__(root, *args, **kwargs)
-        self.configure(bd=5)
-        self.root = root
-
-        self.flag_counter = tk.Label(self, text=root.mines)
-        self.time_counter = tk.Label(self, text='000')
-        self.button = tk.Button(self, text="Clear", state="disabled", command=self.button_callback)
-
-        self.flag_counter.grid(row=0, column=0, sticky=tk.W)
-        self.button.grid(row=0, column=1)
-        self.time_counter.grid(row=0, column=2, sticky=tk.E)
-        self.grid_columnconfigure(1, weight=1)
-
-    def button_callback(self):
-        self.root.button_click()
-        return
-
-    def set_time(self, time):
-        self.time_counter.configure(text="{0:0=3d}".format(time))
-
-    def display_score(self):
-        game = self.root.game
-        self.flag_counter.configure(text="{} / {}".format(game.score, game.m))
-
-    def update_flag_count(self, flags):
-        self.flag_counter.config(text=flags)
-        self.button.configure(state = "disabled" if flags != 0 else "normal")
-
-    def update_win(self):
-        self.button.configure(fg='green', text="Restart", state='normal')
-        self.display_score()
-
-    def update_lose(self):
-        self.button.configure(fg='red', text="Restart", state='normal')
-        self.display_score()
-
-    def update_thinking(self, thinking):
-        if thinking:
-            self.button.configure(text="Thinking...", state=self.button['state'])
-        else:
-            self.button.configure(fg='black', text="Clear", state=self.button['state'])
-        self.update()
-
-    def update_reset(self):
-        self.button.configure(fg='black', text="Clear", state='disabled')
-        self.update_flag_count(self.root.game.m)
-        self.time_counter.configure(text='000')
-
-class MS_GameWindow_Field(tk.Canvas):
-    NumberColors = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
-    
-    def __init__(self, root: MS_GameWindow, tile_size: int, *args, **kwargs) -> None:
-        super().__init__(root, *args, **kwargs)
-        self.configure(width=root.x*tile_size+2, height=root.y*tile_size+2,  highlightthickness=0, borderwidth=0)
-        self.root = root
-
-        self.tile_size = tile_size
-        self.display_tile_ids = False
-        self.death_tile = None
-        self.number_colors = MS_GameWindow_Field.NumberColors
-        
-        self.set_bindings()
-        self.new_field()
-        return
-    
-    def set_bindings(self) -> None:
-        self.bind("<1>", self._LeftClick)
-        self.bind("<3>", self._RightClick)
-        self.bind("<Return>", lambda _: self.root.button_click())
-        self.bind("r", lambda _: self.root.manual_reset())
-        self.bind("s", lambda _: self.root.first_move())
-        self.bind("<Control-g>", lambda _: self.show_full_graph())
-        self.bind("<Shift-G>", lambda _: self.show_number_graph())
-        self.bind("n", lambda _: self.toggle_tile_ids())
-        self.bind("f", lambda _: self.auto_finish())
-        self.bind("1", lambda _: self.cheat(1))
-        self.bind("2", lambda _: self.cheat(2))
-        self.bind("3", lambda _: self.cheat(3))
-        self.bind("4", lambda _: self.cheat(4))
-        self.bind("5", lambda _: self.cheat(5))
-        self.bind("6", lambda _: self.cheat(6))
-        self.bind("7", lambda _: self.cheat(7))
-        self.bind("8", lambda _: self.cheat(8))
-        self.bind("9", lambda _: self.cheat(9))
-        self.bind("0", lambda _: self.cheat(10))
-        self.bind("<Control-Up>", lambda _: self.increment_tile_size())
-        self.bind("<Control-Down>", lambda _: self.decrement_tile_size())
-    
-    def increment_tile_size(self) -> None:
-        self.tile_size += 1
-        self.configure(width=self.root.x*self.tile_size+2, height=self.root.y*self.tile_size+2)
-        self.new_field(recreate=True)
-    
-    def decrement_tile_size(self) -> None:
-        self.tile_size -= 1
-        self.configure(width=self.root.x*self.tile_size+2, height=self.root.y*self.tile_size+2)
-        self.new_field(recreate=True)
-
-    def toggle_tile_ids(self) -> None:
-        self.display_tile_ids = not self.display_tile_ids
-        for i in range(self.root.x*self.root.y):
-            self.itemconfig(self.tile_nums[i], text=(str(i) if self.display_tile_ids else ''))
-        self.new_field(recreate=True)
-
-    def new_field(self, recreate=False) -> None:
-        if not recreate:
-            self.tiles = []
-            self.texts = []
-            self.tile_nums = []
-        x, y = self.root.x, self.root.y
-        for i in range(x*y):
-            x1 = (i%x) * self.tile_size
-            y1 = (i//x) * self.tile_size
-            x2 = x1 + self.tile_size
-            y2 = y1 + self.tile_size
-            if not recreate:
-                self.tiles.append(self.create_rectangle(x1, y1, x2, y2, outline='black', fill='grey'))
-                self.texts.append(self.create_text(((x1+x2)/2, (y1+y2)/2), text=''))
-                self.tile_nums.append(self.create_text((x1, y1), text=(str(i) if self.display_tile_ids else ''), anchor=tk.NW))
-            else:
-                self.coords(self.tiles[i], x1, y1, x2, y2)
-                self.coords(self.texts[i], ((x1+x2)/2, (y1+y2)/2))
-                self.coords(self.tile_nums[i], (x1, y1))
-
-    def update_reset(self) -> None:
-        self.new_field()
-
-    def click_to_tile(self, event):
-        return self.root.game.field.tile_num(event.x // self.tile_size, event.y // self.tile_size)
-
-    def clear_tiles(self, ts) -> None:
-        game = self.root.game
-        for t in ts:
-            tile = game.field[t]
-            if tile.mined:
-                self.death_tile = t
-                return
-            num = tile.mine_count
-            if num != 0:
-                self.itemconfigure(self.texts[t], text=str(num), fill=self.number_colors[num-1])
-            self.itemconfigure(self.tiles[t], fill='white')
-        self.update()
-
-    def place_flag(self, t) -> None:
-        self.itemconfigure(self.texts[t], text='F', fill='red')
-        self.update()
-
-    def remove_flag(self, t) -> None:
-        self.itemconfigure(self.texts[t], text='')
-        self.update()
-
-    def reveal_mines(self, mines):
-        for m in mines:
-            self.itemconfigure(self.texts[m], text='M')
-            self.itemconfigure(self.tiles[m], fill='orange' if self.death_tile is not None and self.death_tile == m else 'red')
-
-    def reveal_bad_flags(self, flags):
-        for f in flags:
-            self.itemconfigure(self.texts[f], text='!')
-            self.itemconfigure(self.tiles[f], fill='yellow')
-
-    def highlight_flags(self, flags):
-        for f in flags:
-            self.itemconfigure(self.tiles[f], fill='green')
-
-    def cheat(self, n):
-        self.root.set_thinking(thinking=True)
+        self.set_thinking(thinking=True)
         print("Cheat level {} starting".format(n))
-        ai = self.root.AI
-        game = self.root.game
-        if game.is_complete():
-            return
+        ai = self.AI
+        game = self.game
         if game.is_ready():
             game.start_game()
             game.do_first_move()
@@ -520,82 +378,184 @@ class MS_GameWindow_Field(tk.Canvas):
             game.clear_tile(id)
         progress = (len(flags) > 0) or (len(clears) > 0)
         print("Cheat complete ({})".format("progress made" if progress else "no progress"))
-        self.root.set_thinking(thinking=False)
+        self.set_thinking(thinking=False)
 
-    def auto_cheat(self, max_level):
-        self.root.set_thinking(thinking=True)
-        print("Auto-cheat starting (level {})".format(max_level))
-        progress_made = self.root.AI.auto_play(max_level)
-        print("Auto-cheat complete ({})".format("progress made" if progress_made else "no progress"))
-        self.root.set_thinking(thinking=False)
-
-    def full_auto_cheat(self, max_level):
-        self.root.set_thinking(thinking=True)
-        print("Auto-cheat starting (level {})".format(max_level))
-        progress_made = self.root.AI.auto_play(max_level, to_completion=True, samples=2000, yolo_cutoff=0.01)
-        print("Auto-cheat complete ({})".format("progress made" if progress_made else "no progress"))
-        self.root.set_thinking(thinking=False)
-
-    def auto_finish(self):
-        self.root.set_thinking(thinking=True)
-        print("Auto-finishing")
-        self.root.AI.do_probable_actions(samples=2000, yolo_cutoff=0.075)
-        print("Auto-finish complete")
-        if not self.root.game.is_complete():
-            self.root.set_thinking(thinking=False)
-
-    def show_full_graph(self):
-        self.root.AI.display_full_graph()
-
-    def show_number_graph(self):
-        self.root.AI.display_number_graph()
-
-    def _LeftClick(self, event):
-        t = self.click_to_tile(event)
-        game = self.root.game
-
-        if game.status == MS_Status.Complete:
+    def first_move(self) -> None:
+        if not self.game.is_ready():
             return
-        if not 0 <= t < game.N:
-            raise Exception("bad click?")
+        self.game.do_first_move()
 
-        if game.is_ready():
-            game.start_game()
+    def load_game(self, game: MS_Game) -> None:
+        self.game = game
+        self._init_game_handlers()
+        self.game.start_time = time.time() - self.game.current_time
+        self.x, self.y, self.mines = game.x, game.y, game.m
+        self.field.new_field()
+        self.field.clear_tiles([t for t in game.field if t.displayed])
+        for t in game.get_flagged_tile_ids():
+            self.field.set_tile_flagged(t)
+        self.header.update_flag_count(game.flags)
 
-        # check for click on number
-        tile = game.field[t]
-        if tile.displayed:
-            nebs = game.field.neighbors(t)
-            flag_count = len([neb for neb in nebs if neb.flagged])
-            unflagged_nebs = [neb for neb in nebs if not neb.displayed and not neb.flagged]
-            if tile.mine_count == flag_count:
-                for neb in unflagged_nebs:
-                    game.clear_tile(neb.id)
+    def lose_game(self) -> None:
+        self.header.update_lose()
+        if self.game.detonated_tile:
+            self.field.death_tile_num = self.game.detonated_tile.id
+        self.field.reveal_mines(self.game.get_unflagged_mine_tile_ids())
+        self.field.reveal_bad_flags(self.game.get_misplaced_flag_tile_ids())
 
-        # clear tile
-        game.clear_tile(t)
+    def manual_reset(self) -> None:
+        self.game.reset()
 
-        # Update
-        self.root.update()
+    def set_thinking(self, thinking) -> None:
+        self.header.update_thinking(thinking)
 
-        return
+    def update(self) -> None:
+        self._update_time()
+        self.root.after(75, self.update)
 
-    def _RightClick(self, event):
-        t = self.click_to_tile(event)
+    def win_game(self) -> None:
+        self.header.update_win()
+        self.field.highlight_flags(self.game.get_flagged_tile_ids())
+
+class MS_GameWindow_Header(tk.Frame):
+    def __init__(self, root: MS_GameWindow, *args, **kwargs):
+        super().__init__(root, *args, **kwargs)
+        self.configure(bd=5)
+        self.root = root
+        self.e_MainButtonClicked = EventSource()
+
+        self.flag_counter = tk.Label(self, text=root.mines)
+        self.time_counter = tk.Label(self, text='000')
+        self.button = tk.Button(self, text="Clear", state="disabled", command=lambda: self.e_MainButtonClicked.emit())
+
+        self.flag_counter.grid(row=0, column=0, sticky=tk.W)
+        self.button.grid(row=0, column=1)
+        self.time_counter.grid(row=0, column=2, sticky=tk.E)
+        self.grid_columnconfigure(1, weight=1)
+
+    def set_time(self, time) -> None:
+        self.time_counter.configure(text="{0:0=3d}".format(time))
+
+    def display_score(self) -> None:
         game = self.root.game
+        self.flag_counter.configure(text="{} / {}".format(game.score, game.m))
 
-        if game.status == MS_Status.Complete:
-            return
-        if not 0 <= t < game.N:
-            raise Exception("bad click?")
+    def update_flag_count(self, flags) -> None:
+        self.flag_counter.config(text=flags)
+        self.button.configure(state = "disabled" if flags != 0 else "normal")
 
-        # Flag tile in game
-        game.toggle_flag(t)
+    def update_win(self) -> None:
+        self.button.configure(fg='green', text="Restart", state='normal')
+        self.display_score()
 
-        # Update
-        self.root.update()
+    def update_lose(self) -> None:
+        self.button.configure(fg='red', text="Restart", state='normal')
+        self.display_score()
 
-def main():
+    def update_thinking(self, thinking) -> None:
+        if thinking:
+            self.button.configure(text="Thinking...", state=self.button['state'])
+        else:
+            self.button.configure(fg='black', text="Clear", state=self.button['state'])
+        self.update()
+
+    def update_reset(self) -> None:
+        self.button.configure(fg='black', text="Clear", state='disabled')
+        self.update_flag_count(self.root.game.m)
+        self.time_counter.configure(text='000')
+
+class MS_GameWindow_Field(tk.Canvas):
+    NumberColors = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
+    
+    def __init__(self, root: MS_GameWindow, x: int, y: int, tile_size: int, *args, **kwargs) -> None:
+        super().__init__(root, *args, **kwargs)
+        self.configure(width=root.x*tile_size+2, height=root.y*tile_size+2,  highlightthickness=0, borderwidth=0)
+        self.root = root
+
+        self.x, self.y = x,y
+        self.tile_size = tile_size
+        self.display_tile_ids: bool = False
+        self.death_tile_num: int = -1
+        self.number_colors = MS_GameWindow_Field.NumberColors
+        self.tiles: list[int] = []
+        self.texts: list[int] = []
+        self.tile_nums: list[int] = []
+        self.e_TileLeftClick = EventSource()
+        self.e_TileRightClick = EventSource()
+        
+        self.bind("<Button-1>", lambda ev: self.e_TileLeftClick.emit(self._click_to_tile_xy(ev)))
+        self.bind("<Button-3>", lambda ev: self.e_TileRightClick.emit(self._click_to_tile_xy(ev)))
+        self.new_field()
+    
+    def _click_to_tile_xy(self, event) -> tuple[int, int]:
+        return (event.x // self.tile_size, event.y // self.tile_size)
+
+    def clear_tiles(self, tiles: list[MS_Tile]) -> None:
+        for tile in tiles:
+            num = tile.mine_count
+            if num != 0:
+                self.itemconfigure(self.texts[tile.id], text=str(num), fill=self.number_colors[num-1])
+            self.itemconfigure(self.tiles[tile.id], fill='white')
+        self.update()
+
+    def highlight_flags(self, flagged_tile_nums: list[int]) -> None:
+        for f in flagged_tile_nums:
+            self.itemconfigure(self.tiles[f], fill='green')
+
+    def new_field(self, recreate: bool = False) -> None:
+        for i in range(self.x * self.y):
+            x1 = (i % self.x) * self.tile_size
+            y1 = (i // self.x) * self.tile_size
+            x2 = x1 + self.tile_size
+            y2 = y1 + self.tile_size
+            if recreate:
+                self.coords(self.tiles[i], x1, y1, x2, y2)
+                self.coords(self.texts[i], ((x1+x2)/2, (y1+y2)/2))
+                self.coords(self.tile_nums[i], (x1, y1))
+            else:
+                self.tiles.append(self.create_rectangle(x1, y1, x2, y2, outline='black', fill='grey'))
+                self.texts.append(self.create_text(((x1+x2)/2, (y1+y2)/2), text=''))
+                self.tile_nums.append(self.create_text((x1, y1), text=(str(i) if self.display_tile_ids else ''), anchor=tk.NW))
+
+    def reveal_bad_flags(self, bad_flag_tile_nums: list[int]) -> None:
+        for f in bad_flag_tile_nums:
+            self.itemconfigure(self.texts[f], text='!')
+            self.itemconfigure(self.tiles[f], fill='yellow')
+
+    def reveal_mines(self, mined_tile_nums: list[int]) -> None:
+        for m in mined_tile_nums:
+            self.itemconfigure(self.texts[m], text='M')
+            self.itemconfigure(self.tiles[m], fill='orange' if self.death_tile_num == m else 'red')
+
+    def set_tile_flagged(self, t) -> None:
+        self.itemconfigure(self.texts[t], text='F', fill='red')
+        self.update()
+
+    def set_tile_unflagged(self, t) -> None:
+        self.itemconfigure(self.texts[t], text='')
+        self.update()
+
+    def tile_size_increment(self) -> None:
+        self.tile_size += 1
+        self.configure(width=self.x*self.tile_size+2, height=self.y*self.tile_size+2)
+        self.new_field(recreate=True)
+    
+    def tile_size_decrement(self) -> None:
+        self.tile_size -= 1
+        self.configure(width=self.x*self.tile_size+2, height=self.y*self.tile_size+2)
+        self.new_field(recreate=True)
+
+    def toggle_tile_ids(self) -> None:
+        self.display_tile_ids = not self.display_tile_ids
+        for i in range(self.x*self.y):
+            self.itemconfig(self.tile_nums[i], text=(str(i) if self.display_tile_ids else ''))
+        self.new_field(recreate=True)
+
+    def update_reset(self) -> None:
+        self.death_tile_num = -1
+        self.new_field()
+
+def main() -> None:
     app = MS_App()
 
 if __name__ == "__main__":

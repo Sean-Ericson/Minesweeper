@@ -223,7 +223,8 @@ class MS_Game:
         self.game_won: bool = False
         self.score: int = 0
         self.final_time: float = 0
-        self.current_time:float = 0
+        self.current_time: float = 0
+        self.detonated_tile: Union[MS_Tile, None] = None
 
     def _reveal_tile(self, n) -> None:
         """
@@ -263,6 +264,7 @@ class MS_Game:
         # If you've is_cleared a mine, bummer
         if tile.mined:
             self.detonated = True
+            self.detonated_tile = tile
             self._reveal_tile(n)
             self._set_game_complete(game_won=False, score=0)
             return
@@ -286,8 +288,9 @@ class MS_Game:
             tile = self.field[i]
             if tile.displayed:
                 continue
-            if tile.flagged and not tile.mined:
-                bad_flags.append(i)
+            if tile.flagged:
+                if not tile.mined:
+                    bad_flags.append(i)
             else:
                 if tile.mined:
                     detonated.append(i)
