@@ -44,6 +44,14 @@ class Number_Subgraph:
         self.nodes = nodes
         self.level = level
 
+class FullGraph:
+    def __init__(self) -> None:
+        pass 
+
+class NumberGraph:
+    def __init__(self) -> None:
+        pass
+
 ############################################################
 # The Best AI Ever
 ############################################################
@@ -87,6 +95,8 @@ class MS_AI:
             return
         # update number graph after full graph
         for tile in tiles:
+            if tile.mine_count == 0:
+                continue
             self._update_full_graph(tile)
             self._update_number_graph(tile)
 
