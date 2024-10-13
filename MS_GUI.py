@@ -1,17 +1,15 @@
 #Minesweeper GUI by Sean Ericson
 from Minesweeper import *
 from MS_AI import MS_AI
-from typing import Union, Any
+from typing import Union
 import tkinter as tk
 import pickle
-
-from Minesweeper import MS_GameArgs
 
 class MS_Settings:
     """
     Minesweeper game settings to be saved to file.
     """
-    DefaultTileSize = 10
+    DefaultTileSize = 25
     
     def __init__(self) -> None:
         self.tile_size: int = MS_Settings.DefaultTileSize
@@ -164,15 +162,15 @@ class MS_MainFrame(tk.Frame):
         self.startButton = tk.Button(self, width=12, text="Start", font=("MS Serif", 18), command=lambda: self.e_StartGameRequest.emit(self.game_args()))
         self.startButton.grid(row=4, column=0, columnspan=2, sticky=tk.S, pady=(10, 0))
     
-    def _xyValid(self, s: str) -> bool:
-        return s == "" or s.isdigit()
-    
     def _mValid(self, s: str) -> bool:
         return self._xyValid(s) and (0 if s=="" else int(s)) < (self.X() * self.Y())
-    
+
     def _xyChange(self, ev) -> None:
         if self.M() >= self.X() * self.Y():
             self.m.set(str(max(self.X() * self.Y() - 1, 1)))
+
+    def _xyValid(self, s: str) -> bool:
+        return s == "" or s.isdigit()    
         
     def X(self) -> int:
         return int(self.x.get())
@@ -239,15 +237,17 @@ class MS_GameWindow(tk.Toplevel):
         self.AI = MS_AI(self.game)
 
         # Init window components
-        self.header = MS_GameWindow_Header(self)
+        self.wrapper_frame = tk.Frame(self)
+        self.header = MS_GameWindow_Header(self.wrapper_frame, self.mines)
         self.header.e_MainButtonClicked += self._MS_GameWindow_Header_MainButtonClicked
-        self.field = MS_GameWindow_Field(self, self.x, self.y, tile_size=tile_size)
+        self.field = MS_GameWindow_Field(self.wrapper_frame, self.x, self.y, tile_size=tile_size)
         self.field.e_TileLeftClick += self._MS_GameWindow_Field_TileLeftClick
         self.field.e_TileRightClick += self._MS_GameWindow_Field_TileRightClick
 
         # Layout window components
         self.header.grid(row=0, column=0, sticky=tk.W+tk.E)
         self.field.grid(row=1, column=0)
+        self.wrapper_frame.grid(row=0, column=0)
         
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -261,7 +261,7 @@ class MS_GameWindow(tk.Toplevel):
         self.bind("r", lambda _: self.manual_reset())
         self.bind("s", lambda _: self.first_move())
         self.bind("<Control-g>", lambda _: self.AI.display_full_graph())
-        self.bind("<Shift-G>", lambda _: self.AI.display_full_graph())
+        self.bind("<Shift-G>", lambda _: self.AI.display_number_graph())
         self.bind("<Control-Up>", lambda _: self.field.tile_size_increment())
         self.bind("<Control-Down>", lambda _: self.field.tile_size_decrement())
         self.bind("1", lambda _: self.cheat(1))
@@ -295,8 +295,7 @@ class MS_GameWindow(tk.Toplevel):
         self.header.update_flag_count(self.game.flags)
 
     def _MS_Game_GameReset(self) -> None:
-        self.AI.reset()
-        self._update_reset()
+        self._reset_GameWindow()
 
     def _MS_Game_GameComplete(self) -> None:
         if self.game.game_won:
@@ -339,7 +338,7 @@ class MS_GameWindow(tk.Toplevel):
         self.game.toggle_flag(self.game.field.tile_num(*tile_loc))
 
         # Update
-        self.root.update()
+        self.update()
 
     def _MS_GameWindow_Header_MainButtonClicked(self) -> None:
         if self.game.is_active():
@@ -351,9 +350,9 @@ class MS_GameWindow(tk.Toplevel):
         self.game.get_time()
         self.e_SaveGameRequest.emit(game=self.game)
 
-    def _update_reset(self) -> None:
-        self.header.update_reset()
-        self.field.update_reset()
+    def _reset_GameWindow(self) -> None:
+        self.header.reset_header()
+        self.field.reset_field()
 
     def _update_time(self) -> None:
         if not self.game.is_active():
@@ -397,7 +396,7 @@ class MS_GameWindow(tk.Toplevel):
         self.header.update_flag_count(game.flags)
 
     def lose_game(self) -> None:
-        self.header.update_lose()
+        self.header.update_lose(self.game.score)
         if self.game.detonated_tile:
             self.field.death_tile_num = self.game.detonated_tile.id
         self.field.reveal_mines(self.game.get_unflagged_mine_tile_ids())
@@ -414,17 +413,18 @@ class MS_GameWindow(tk.Toplevel):
         self.root.after(75, self.update)
 
     def win_game(self) -> None:
-        self.header.update_win()
+        self.header.update_win(self.game.score)
         self.field.highlight_flags(self.game.get_flagged_tile_ids())
 
 class MS_GameWindow_Header(tk.Frame):
-    def __init__(self, root: MS_GameWindow, *args, **kwargs):
+    def __init__(self, root, mines: int, *args, **kwargs):
         super().__init__(root, *args, **kwargs)
         self.configure(bd=5)
         self.root = root
+        self.mines = mines
         self.e_MainButtonClicked = EventSource()
 
-        self.flag_counter = tk.Label(self, text=root.mines)
+        self.flag_counter = tk.Label(self, text=mines)
         self.time_counter = tk.Label(self, text='000')
         self.button = tk.Button(self, text="Clear", state="disabled", command=lambda: self.e_MainButtonClicked.emit())
 
@@ -436,21 +436,25 @@ class MS_GameWindow_Header(tk.Frame):
     def set_time(self, time) -> None:
         self.time_counter.configure(text="{0:0=3d}".format(time))
 
-    def display_score(self) -> None:
-        game = self.root.game
-        self.flag_counter.configure(text="{} / {}".format(game.score, game.m))
+    def display_score(self, score) -> None:
+        self.flag_counter.configure(text="{} / {}".format(score, self.mines))
 
-    def update_flag_count(self, flags) -> None:
+    def reset_header(self) -> None:
+        self.button.configure(fg='black', text="Clear", state='disabled')
+        self.update_flag_count(self.mines)
+        self.time_counter.configure(text='000')
+
+    def update_flag_count(self, flags: int) -> None:
         self.flag_counter.config(text=flags)
         self.button.configure(state = "disabled" if flags != 0 else "normal")
 
-    def update_win(self) -> None:
+    def update_win(self, score: int) -> None:
         self.button.configure(fg='green', text="Restart", state='normal')
-        self.display_score()
+        self.display_score(score)
 
-    def update_lose(self) -> None:
+    def update_lose(self, score: int) -> None:
         self.button.configure(fg='red', text="Restart", state='normal')
-        self.display_score()
+        self.display_score(score)
 
     def update_thinking(self, thinking) -> None:
         if thinking:
@@ -459,17 +463,12 @@ class MS_GameWindow_Header(tk.Frame):
             self.button.configure(fg='black', text="Clear", state=self.button['state'])
         self.update()
 
-    def update_reset(self) -> None:
-        self.button.configure(fg='black', text="Clear", state='disabled')
-        self.update_flag_count(self.root.game.m)
-        self.time_counter.configure(text='000')
-
 class MS_GameWindow_Field(tk.Canvas):
     NumberColors = ['blue', 'green', 'red', 'yellow', 'orange', 'purple', 'pink', 'black']
     
-    def __init__(self, root: MS_GameWindow, x: int, y: int, tile_size: int, *args, **kwargs) -> None:
+    def __init__(self, root, x: int, y: int, tile_size: int, *args, **kwargs) -> None:
         super().__init__(root, *args, **kwargs)
-        self.configure(width=root.x*tile_size+2, height=root.y*tile_size+2,  highlightthickness=0, borderwidth=0)
+        self.configure(width=x*tile_size+2, height=y*tile_size+2,  highlightthickness=0, borderwidth=0)
         self.root = root
 
         self.x, self.y = x,y
@@ -487,7 +486,7 @@ class MS_GameWindow_Field(tk.Canvas):
         self.bind("<Button-3>", lambda ev: self.e_TileRightClick.emit(self._click_to_tile_xy(ev)))
         self.new_field()
     
-    def _click_to_tile_xy(self, event) -> tuple[int, int]:
+    def _click_to_tile_xy(self, event: tk.Event) -> tuple[int, int]:
         return (event.x // self.tile_size, event.y // self.tile_size)
 
     def clear_tiles(self, tiles: list[MS_Tile]) -> None:
@@ -516,6 +515,13 @@ class MS_GameWindow_Field(tk.Canvas):
                 self.tiles.append(self.create_rectangle(x1, y1, x2, y2, outline='black', fill='grey'))
                 self.texts.append(self.create_text(((x1+x2)/2, (y1+y2)/2), text=''))
                 self.tile_nums.append(self.create_text((x1, y1), text=(str(i) if self.display_tile_ids else ''), anchor=tk.NW))
+
+    def reset_field(self) -> None:
+        self.death_tile_num = -1
+        self.tiles = []
+        self.texts = []
+        self.tile_nums = []
+        self.new_field()
 
     def reveal_bad_flags(self, bad_flag_tile_nums: list[int]) -> None:
         for f in bad_flag_tile_nums:
@@ -550,10 +556,6 @@ class MS_GameWindow_Field(tk.Canvas):
         for i in range(self.x*self.y):
             self.itemconfig(self.tile_nums[i], text=(str(i) if self.display_tile_ids else ''))
         self.new_field(recreate=True)
-
-    def update_reset(self) -> None:
-        self.death_tile_num = -1
-        self.new_field()
 
 def main() -> None:
     app = MS_App()
