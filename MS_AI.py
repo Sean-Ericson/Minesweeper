@@ -44,9 +44,13 @@ class Number_Subgraph:
         self.nodes = nodes
         self.level = level
 
-class FullGraph:
-    def __init__(self) -> None:
-        pass 
+class FullGraph(nx.Graph):
+    def __init__(self, game: MS_Game) -> None:
+        super().__init__()
+        for tile in game.field.tiles:
+            self.add_node(tile.id, tile=tile)
+    
+    
 
 class NumberGraph:
     def __init__(self) -> None:
