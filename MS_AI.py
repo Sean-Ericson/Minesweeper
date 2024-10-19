@@ -40,11 +40,6 @@ def get_connected_subgraphs(G, size):
 # Helper Classes
 ############################################################
 
-class Number_Subgraph:
-    def __init__(self, nodes, level=1):
-        self.nodes = nodes
-        self.level = level
-
 class FullGraph(nx.Graph):
     def __init__(self, field: MS_Field) -> None:
         super().__init__()
