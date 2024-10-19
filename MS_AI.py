@@ -1,10 +1,12 @@
 # Minesweeper AIs
+import re
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
+from sympy import false
 from Minesweeper import *
 from functools import reduce
-from itertools import combinations
+from itertools import combinations, chain
 from networkx.algorithms import bipartite
 import z3
 
@@ -61,6 +63,8 @@ def exactly_n(vars, n):
         return z3.Not(vars[0]) if n == 0 else vars[0]
     if n == len(vars):
         return reduce(z3.And, vars)
+    if n == 0:
+        return reduce(z3.And, [z3.Not(v) for v in vars])
     ands = []
     for comb in combinations(vars, n):
         trues = reduce(z3.And, comb) if n > 1 else comb[0]
@@ -91,7 +95,9 @@ class FullGraph(nx.Graph):
         for neighbor in self.field.neighbors(tile.id):
             if not neighbor.displayed:
                 self.add_node(neighbor.id, tile=neighbor)
-                self.add_edge(tile.id, neighbor.id)
+                for neb_neb in self.field.neighbors(neighbor.id):
+                    if neb_neb.displayed:
+                        self.add_edge(neb_neb.id, neighbor.id)
 
 ############################################################
 # The Best AI Ever
@@ -106,20 +112,20 @@ class MS_AI:
 
         self.full_graph = FullGraph(game.field)
 
-    def _level_one_actions(self):
-        tiles_to_flag = []
-        tiles_to_display = []
+    def _level_one_actions(self) -> tuple[list[int], list[int]]:
+        tiles_to_flag = set()
+        tiles_to_display = set()
 
         number_nodes = [id for id,attr in self.full_graph.nodes(data=True) if attr["tile"].displayed]
         for id in number_nodes:
             unflagged_neighbors = [id for id in self.full_graph[id] if not self.game.field[id].flagged]
 
             if self.full_graph.nodes.data()[id]["tile"].effective_count == 0:
-                tiles_to_display += [neb for neb in unflagged_neighbors if not neb in tiles_to_display]
+                tiles_to_display = tiles_to_display.union(set([neb for neb in unflagged_neighbors if not neb in tiles_to_display]))
             elif self.full_graph.nodes.data()[id]["tile"].effective_count == len(unflagged_neighbors):
-                tiles_to_flag += [neb for neb in unflagged_neighbors if not neb in tiles_to_flag]
+                tiles_to_flag = tiles_to_flag.union(set([neb for neb in unflagged_neighbors if not neb in tiles_to_flag]))
 
-        return tiles_to_flag, tiles_to_display
+        return list(tiles_to_flag), list(tiles_to_display)
 
     def _make_number_graph(self):
         number_tiles = []
@@ -127,8 +133,9 @@ class MS_AI:
             tile = self.full_graph.nodes[i]["tile"]
             if tile.displayed and tile.effective_count > 0:
                 number_tiles.append(i)
-        no_flags_graph = nx.Graph(self.full_graph).subgraph([i for i in self.full_graph.nodes if self.full_graph.nodes[i]["tile"].effective_count > 0])
-        return bipartite.projected_graph(no_flags_graph, number_tiles)
+        graph = nx.Graph(self.full_graph)
+        graph.remove_nodes_from([i for i in graph.nodes if graph.nodes[i]["tile"].flagged])
+        return bipartite.projected_graph(graph, number_tiles)
 
     def _MS_Game_TilesDisplayed(self, tiles: list[MS_Tile]) -> None:
         for tile in tiles:
@@ -140,8 +147,13 @@ class MS_AI:
     def _MS_Game_GameReset(self) -> None:
         self.reset()
 
-    def display_full_graph(self) -> None:
+    def display_full_graph(self, trimmed=False) -> None:
         full_graph = nx.Graph(self.full_graph)
+        if trimmed:
+            for id in [tile.id for tile in self.game.field if tile.flagged]:
+                if id in full_graph:
+                    full_graph.remove_node(id)
+            full_graph.remove_nodes_from(list(nx.isolates(full_graph)))
         number_nodes = [id for id,attr in full_graph.nodes(data=True) if attr["tile"].displayed]
         flagged_nodes = [id for id,attr in full_graph.nodes(data=True) if not attr["tile"].displayed and attr["tile"].flagged]
         unflagged_nodes = [id for id,attr in full_graph.nodes(data=True) if not attr["tile"].displayed and not attr["tile"].flagged]
@@ -207,6 +219,10 @@ class MS_AI:
         
         return [[i for i in mineable_tiles if z3.is_true(m[vars[i]])] for m in all_smt(solver, vars.values())]
 
+    def largest_number_subgraph_size(self):
+        number_graph = self._make_number_graph()
+        return max([len(c) for c in nx.connected_components(number_graph)])
+
     def level_n_actions(self, n, nodes=None) -> tuple[list[int], list[int]]:
         if n == 1:
             return self._level_one_actions()
@@ -232,6 +248,54 @@ class MS_AI:
                     tiles_to_display.append(mineable_tile)
         
         return tiles_to_flag, tiles_to_display    
+
+    def final_flags(self):
+        field = self.game.field
+        outer_tile_ids = [tile.id for tile in field if not (tile.displayed or tile.id in self.full_graph)]
+        number_graph = self._make_number_graph()
+        vars = dict()
+
+        # create variables
+        for id in self.full_graph:
+            tile = field[id]
+            if not (tile.displayed or tile.flagged):
+                vars[id] = z3.Bool(f"t{id}")
+        
+        assignments = []
+        variable_mine_num_components = []
+        for comp in nx.connected_components(number_graph):
+            solvr = z3.Solver()
+            all_neb_ids = set()
+            for id in comp:
+                tile = field[id]
+                neb_ids = [neb.id for neb in field.neighbors(id) if neb.id in vars.keys()]
+                all_neb_ids = all_neb_ids.union(set(neb_ids))
+                neb_vars = [vars[neb_id] for neb_id in neb_ids]
+                solvr.add(exactly_n(neb_vars, tile.effective_count))
+            sat_asses = [[i for i in vars.keys() if z3.is_true(m[vars[i]])] for m in all_smt(solvr, vars.values())]
+            variable_num = not all([len(ass) == len(sat_asses[0]) for ass in sat_asses])
+            if variable_num:
+                variable_mine_num_components.append((list(comp), list(all_neb_ids)))
+            else:
+                assignments.append(np.random.choice(sat_asses, 1))
+
+        remaining_nums = list(chain.from_iterable([x[0] for x in variable_mine_num_components]))
+        remaining_nebs = list(chain.from_iterable([x[1] for x in variable_mine_num_components]))
+        remaining_vars = [vars[i] for i in remaining_nebs]
+        if len(remaining_nums) > 0:
+            solver = z3.Solver()
+            for id in remaining_nums:
+                tile = field[id]
+                neb_vars = [vars[neb.id] for neb in field.neighbors(id) if neb.id in vars.keys()]
+                solver.add(exactly_n(neb_vars, tile.effective_count))
+            max_total_flag_cond = reduce(z3.Or, [exactly_n(remaining_vars, i) for i in range(self.game.flags+1)])
+            solver.add(max_total_flag_cond)
+            sats = [[i for i in vars.keys() if z3.is_true(m[vars[i]])] for m in all_smt(solver, vars.values())]
+            assignments.append(sats[np.random.randint(len(sats))])
+        foo = list(chain.from_iterable(assignments))
+        remainder = self.game.flags - len(foo)
+        bar = list(np.random.choice(outer_tile_ids, remainder))
+        return foo + bar
 
     def reset(self) -> None:
         self.full_graph = FullGraph(self.game.field)

@@ -1,4 +1,5 @@
 #Minesweeper GUI by Sean Ericson
+from distributed import progress
 from Minesweeper import *
 from MS_AI import MS_AI
 from typing import Union
@@ -257,15 +258,21 @@ class MS_GameWindow(tk.Toplevel):
         self._init_bindings()
         root.after(5, self.update)
 
+    def _debug(self):
+        foo = "bar"
     def _init_bindings(self) -> None:
+        self.bind("d", lambda _: self._debug())
         self.bind("<Return>", lambda _: self._MS_GameWindow_Header_MainButtonClicked())
         self.bind("n", lambda _: self.field.toggle_tile_ids())
         self.bind("r", lambda _: self.manual_reset())
         self.bind("s", lambda _: self.first_move())
         self.bind("<Control-g>", lambda _: self.AI.display_full_graph())
+        self.bind("<Alt-g>", lambda _: self.AI.display_full_graph(trimmed=True))
         self.bind("<Shift-G>", lambda _: self.AI.display_number_graph())
         self.bind("<Control-Up>", lambda _: self.field.tile_size_increment())
         self.bind("<Control-Down>", lambda _: self.field.tile_size_decrement())
+        self.bind("a", lambda _: self.auto_cheat())
+        self.bind("f", lambda _: self.cheat_final_flags())
         self.bind("1", lambda _: self.cheat(1))
         self.bind("2", lambda _: self.cheat(2))
         self.bind("3", lambda _: self.cheat(3))
@@ -362,9 +369,30 @@ class MS_GameWindow(tk.Toplevel):
         time = self.game.get_time()
         self.header.set_time(int(time))
 
-    def cheat(self, n) -> None:
-        if self.game.is_complete():
+    def auto_cheat(self):
+        if not self.game.is_active():
             return
+        print("Starting auto cheat")
+        i = 1
+        max_i = self.AI.largest_number_subgraph_size()
+        while i <= max_i:
+            prog = self.cheat(i)
+            if prog:
+                if self.game.flags == 0:
+                    break
+                i = 1
+                max_i = self.AI.largest_number_subgraph_size()
+            else:
+                i += 1
+        if self.game.flags == 0:
+            self.game.clear_unflagged()
+        else:
+            self.cheat_final_flags()
+        print("Auto cheat complete")
+
+    def cheat(self, n) -> bool:
+        if self.game.is_complete():
+            return False
         self.set_thinking(thinking=True)
         print("Cheat level {} starting".format(n))
         ai = self.AI
@@ -380,6 +408,16 @@ class MS_GameWindow(tk.Toplevel):
         progress = (len(flags) > 0) or (len(clears) > 0)
         print(f"Cheat complete ({f'{len(flags)} flags, {len(clears)} clears' if progress else 'no progress'})")
         self.set_thinking(thinking=False)
+        return progress
+
+    def cheat_final_flags(self):
+        print("Starting final-flags cheat")
+        flags = self.AI.final_flags()
+        for id in flags:
+            self.game.toggle_flag(id)
+        if self.game.flags == 0:
+            self.game.clear_unflagged()
+        print("Final-flags cheat complete")        
 
     def first_move(self) -> None:
         if not self.game.is_ready():
