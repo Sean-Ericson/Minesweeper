@@ -7,6 +7,7 @@ from Minesweeper import *
 from functools import reduce
 from itertools import combinations
 from networkx.algorithms import bipartite
+import z3
 
 ############################################################
 # Helper Functions
@@ -35,6 +36,24 @@ def get_connected_subgraphs(G, size):
         recursive_local_expand({i}, set(G.neighbors(i)) - excluded, excluded, results, size)
 
     return results
+
+def all_smt(s, initial_terms):
+    def block_term(s, m, t):
+        s.add(t != m.eval(t, model_completion=True))
+    def fix_term(s, m, t):
+        s.add(t == m.eval(t, model_completion=True))
+    def all_smt_rec(terms):
+        if z3.sat == s.check():
+           m = s.model()
+           yield m
+           for i in range(len(terms)):
+               s.push()
+               block_term(s, m, terms[i])
+               for j in range(i):
+                   fix_term(s, m, terms[j])
+               yield from all_smt_rec(terms[i:])
+               s.pop()   
+    yield from all_smt_rec(list(initial_terms))
 
 ############################################################
 # Helper Classes
@@ -178,6 +197,11 @@ class MS_AI:
                 new_mineable_tiles = [x for x in mineable_tiles if not x in neighbor_tiles]
                 new_mines = current_mines + list(mines)
                 yield from self.get_valid_mine_perms(new_number_tiles, new_mineable_tiles, new_mines)
+
+    def get_valid_ass(self, number_nodes):
+        vars = {i:z3.Bool(f"t{i}") for i in number_nodes}
+
+
 
     def level_n_actions(self, n, nodes=None):
         if n == 1:
