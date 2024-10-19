@@ -2,7 +2,6 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
-import math
 from Minesweeper import *
 from functools import reduce
 from itertools import combinations
@@ -54,6 +53,21 @@ def all_smt(s, initial_terms):
                yield from all_smt_rec(terms[i:])
                s.pop()   
     yield from all_smt_rec(list(initial_terms))
+
+def exactly_n(vars, n):
+    if not (0 <= n <= len(vars)):
+        raise Exception()
+    if len(vars) == 1:
+        return z3.Not(vars[0]) if n == 0 else vars[0]
+    if n == len(vars):
+        return reduce(z3.And, vars)
+    ands = []
+    for comb in combinations(vars, n):
+        trues = reduce(z3.And, comb) if n > 1 else comb[0]
+        others = [z3.Not(var) for var in vars if not var in comb]
+        falses = reduce(z3.And, others) if len(others) > 1 else others[0]
+        ands.append(z3.And(trues, falses))
+    return reduce(z3.Or, ands)
 
 ############################################################
 # Helper Classes
@@ -113,7 +127,8 @@ class MS_AI:
             tile = self.full_graph.nodes[i]["tile"]
             if tile.displayed and tile.effective_count > 0:
                 number_tiles.append(i)
-        return bipartite.projected_graph(self.full_graph, number_tiles)
+        no_flags_graph = nx.Graph(self.full_graph).subgraph([i for i in self.full_graph.nodes if self.full_graph.nodes[i]["tile"].effective_count > 0])
+        return bipartite.projected_graph(no_flags_graph, number_tiles)
 
     def _MS_Game_TilesDisplayed(self, tiles: list[MS_Tile]) -> None:
         for tile in tiles:
@@ -198,10 +213,17 @@ class MS_AI:
                 new_mines = current_mines + list(mines)
                 yield from self.get_valid_mine_perms(new_number_tiles, new_mineable_tiles, new_mines)
 
-    def get_valid_ass(self, number_nodes):
-        vars = {i:z3.Bool(f"t{i}") for i in number_nodes}
-
-
+    def get_valid_ass(self, number_tiles, mineable_tiles):
+        field = self.game.field
+        vars = {i:z3.Bool(f"t{i}") for i in mineable_tiles}
+        solver = z3.Solver()
+        
+        for n in number_tiles:
+            tile = self.game.field[n]
+            neb_vars = [vars[neb.id] for neb in field.neighbors(n) if neb.id in mineable_tiles]
+            solver.add(exactly_n(neb_vars, tile.effective_count))
+        
+        return [[i for i in mineable_tiles if z3.is_true(m[vars[i]])] for m in all_smt(solver, vars.values())]
 
     def level_n_actions(self, n, nodes=None):
         if n == 1:
@@ -216,7 +238,7 @@ class MS_AI:
             # determine union of all adjacent uncleared tiles
             mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["tile"].flagged]) for i in subgraph_indices]))
 
-            valid_perms = [perm for perm in self.get_valid_mine_perms(subgraph_indices, mineable_tiles)]
+            valid_perms = [perm for perm in self.get_valid_ass(subgraph_indices, mineable_tiles)]
             if len(valid_perms) == 0:
                 continue
 
