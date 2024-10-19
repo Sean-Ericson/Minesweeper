@@ -48,6 +48,8 @@ class MS_App():
         main_frame.e_StartGameRequest += self._open_game_window
         main_frame.pack()
 
+        self.main_window.bind("<Return>", lambda _: self._open_game_window(main_frame.game_args()))
+
         self.main_window.mainloop()
     
     def _get_settings(self):
@@ -376,7 +378,7 @@ class MS_GameWindow(tk.Toplevel):
         for id in clears:
             game.clear_tile(id)
         progress = (len(flags) > 0) or (len(clears) > 0)
-        print("Cheat complete ({})".format("progress made" if progress else "no progress"))
+        print(f"Cheat complete ({f'{len(flags)} flags, {len(clears)} clears' if progress else 'no progress'})")
         self.set_thinking(thinking=False)
 
     def first_move(self) -> None:

@@ -57,7 +57,7 @@ class MS_Tile:
         self.flagged: bool = False
         self.mined: bool = False
         self.mine_count: int = 0
-        self.effective_count: int = 0
+        self.effective_count: int = -1
 
 class MS_Field:
     """
@@ -413,7 +413,7 @@ class MS_Game:
         
         # Update effective count of neighbors
         for neb in self.field.neighbors(n):
-            neb.effective_count += 1 if tile.flagged else -1 
+            neb.effective_count += -1 if tile.flagged else 1
         
         # Raise event
         self.e_TileFlagChanged.emit(tile)
