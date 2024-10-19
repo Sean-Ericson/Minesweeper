@@ -195,25 +195,7 @@ class MS_AI:
         nx.draw(number_graph, pos=pos, with_labels=True, ax=ax)
         fig.show()
     
-    def get_valid_mine_perms(self, number_tiles, mineable_tiles, current_mines=None):
-        current_mines = current_mines or []
-        if isinstance(number_tiles, list):
-            number_tiles = {i: self.full_graph.nodes[i]["tile"].effective_count for i in number_tiles}
-        if len(mineable_tiles) == 0 or len(number_tiles) == 0:
-            yield current_mines
-        else:
-            num_tile = list(number_tiles.keys())[0]
-            neighbor_tiles = [t for t in self.full_graph[num_tile] if t in mineable_tiles]
-            for mines in combinations(neighbor_tiles, number_tiles[num_tile]):
-                tmp = {i: number_tiles[i] - len([j for j in mines if j in self.full_graph[i]]) for i in number_tiles if not i == num_tile}
-                if any([v < 0 for v in tmp.values()]):
-                    continue
-                new_number_tiles = {k:v for k,v in tmp.items() if v > 0}
-                new_mineable_tiles = [x for x in mineable_tiles if not x in neighbor_tiles]
-                new_mines = current_mines + list(mines)
-                yield from self.get_valid_mine_perms(new_number_tiles, new_mineable_tiles, new_mines)
-
-    def get_valid_ass(self, number_tiles, mineable_tiles):
+    def get_valid_mine_assignments(self, number_tiles, mineable_tiles):
         field = self.game.field
         vars = {i:z3.Bool(f"t{i}") for i in mineable_tiles}
         solver = z3.Solver()
@@ -225,7 +207,7 @@ class MS_AI:
         
         return [[i for i in mineable_tiles if z3.is_true(m[vars[i]])] for m in all_smt(solver, vars.values())]
 
-    def level_n_actions(self, n, nodes=None):
+    def level_n_actions(self, n, nodes=None) -> tuple[list[int], list[int]]:
         if n == 1:
             return self._level_one_actions()
 
@@ -238,7 +220,7 @@ class MS_AI:
             # determine union of all adjacent uncleared tiles
             mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["tile"].flagged]) for i in subgraph_indices]))
 
-            valid_perms = [perm for perm in self.get_valid_ass(subgraph_indices, mineable_tiles)]
+            valid_perms = self.get_valid_mine_assignments(subgraph_indices, mineable_tiles)
             if len(valid_perms) == 0:
                 continue
 
