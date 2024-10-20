@@ -382,12 +382,13 @@ class MS_GameWindow(tk.Toplevel):
                     break
                 i = 1
                 max_i = self.AI.largest_number_subgraph_size()
+                self.cheat(1)
             else:
                 i += 1
         if self.game.flags == 0:
             self.game.clear_unflagged()
         else:
-            self.cheat_final_flags()
+            pass#self.cheat_final_flags()
         print("Auto cheat complete")
 
     def cheat(self, n) -> bool:

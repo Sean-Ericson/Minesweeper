@@ -1,9 +1,8 @@
 # Minesweeper AIs
-import re
+from typing import Generator
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
-from sympy import false
 from Minesweeper import *
 from functools import reduce
 from itertools import combinations, chain
@@ -14,7 +13,7 @@ import z3
 # Helper Functions
 ############################################################
 
-def get_connected_subgraphs(G, size):
+def get_connected_subgraphs(G: nx.Graph, size: int):
     # https://stackoverflow.com/a/75873085/14165696
     """Get all connected subgraphs by a recursive procedure"""
     def recursive_local_expand(node_set, possible, excluded, results, max_size):
@@ -38,10 +37,10 @@ def get_connected_subgraphs(G, size):
 
     return results
 
-def all_smt(s, initial_terms):
-    def block_term(s, m, t):
+def all_smt(s: z3.Solver, initial_terms: list[z3.BoolRef]):
+    def block_term(s: z3.Solver, m: z3.ModelRef, t) -> None:
         s.add(t != m.eval(t, model_completion=True))
-    def fix_term(s, m, t):
+    def fix_term(s, m, t) -> None:
         s.add(t == m.eval(t, model_completion=True))
     def all_smt_rec(terms):
         if z3.sat == s.check():
@@ -57,6 +56,9 @@ def all_smt(s, initial_terms):
     yield from all_smt_rec(list(initial_terms))
 
 def exactly_n(vars, n):
+    """
+    Return an expression that evaluates to true if exactly n of vars are true
+    """
     if not (0 <= n <= len(vars)):
         raise Exception()
     if len(vars) == 1:
@@ -78,11 +80,14 @@ def exactly_n(vars, n):
 ############################################################
 
 class FullGraph(nx.Graph):
+    """
+    Bipartite graph with number tiles making up one type and uncovered tiles the other.
+    """
     def __init__(self, field: MS_Field) -> None:
         super().__init__()
         self.field = field
 
-    def tile_displayed(self, tile: MS_Tile):
+    def tile_displayed(self, tile: MS_Tile) -> None:
         # if it's in the full graph, it must be from before it was displayed.
         # Remove to also remove edges to other displayed tiles.
         if tile.id in self.nodes:
@@ -113,17 +118,21 @@ class MS_AI:
         self.full_graph = FullGraph(game.field)
 
     def _level_one_actions(self) -> tuple[list[int], list[int]]:
+        """
+        
+        """
         tiles_to_flag = set()
         tiles_to_display = set()
 
         number_nodes = [id for id,attr in self.full_graph.nodes(data=True) if attr["tile"].displayed]
         for id in number_nodes:
+            tile = self.game.field[id]
             unflagged_neighbors = [id for id in self.full_graph[id] if not self.game.field[id].flagged]
 
-            if self.full_graph.nodes.data()[id]["tile"].effective_count == 0:
-                tiles_to_display = tiles_to_display.union(set([neb for neb in unflagged_neighbors if not neb in tiles_to_display]))
-            elif self.full_graph.nodes.data()[id]["tile"].effective_count == len(unflagged_neighbors):
-                tiles_to_flag = tiles_to_flag.union(set([neb for neb in unflagged_neighbors if not neb in tiles_to_flag]))
+            if tile.effective_count == 0:
+                tiles_to_display = tiles_to_display.union(unflagged_neighbors)
+            elif tile.effective_count == len(unflagged_neighbors):
+                tiles_to_flag = tiles_to_flag.union(unflagged_neighbors)
 
         return list(tiles_to_flag), list(tiles_to_display)
 
@@ -217,10 +226,12 @@ class MS_AI:
             neb_vars = [vars[neb.id] for neb in field.neighbors(n) if neb.id in mineable_tiles]
             solver.add(exactly_n(neb_vars, tile.effective_count))
         
-        return [[i for i in mineable_tiles if z3.is_true(m[vars[i]])] for m in all_smt(solver, vars.values())]
+        return [[i for i in mineable_tiles if z3.is_true(m[vars[i]])] for m in all_smt(solver, list(vars.values()))]
 
-    def largest_number_subgraph_size(self):
+    def largest_number_subgraph_size(self) -> int:
         number_graph = self._make_number_graph()
+        if len(number_graph) == 0:
+            return 0
         return max([len(c) for c in nx.connected_components(number_graph)])
 
     def level_n_actions(self, n, nodes=None) -> tuple[list[int], list[int]]:
@@ -228,8 +239,8 @@ class MS_AI:
             return self._level_one_actions()
 
         number_graph = self._make_number_graph()
-        tiles_to_display = []
-        tiles_to_flag = []
+        tiles_to_display = set()
+        tiles_to_flag = set()
 
         for subgraph_indices in get_connected_subgraphs(number_graph if nodes is None else number_graph.subgraph(nodes), n):
 
@@ -242,12 +253,12 @@ class MS_AI:
 
             # add to flag/clear lists
             for mineable_tile in mineable_tiles:
-                if all([mineable_tile in perm for perm in valid_perms]) and not mineable_tile in tiles_to_flag:
-                    tiles_to_flag.append(mineable_tile)
-                if all([not mineable_tile in perm for perm in valid_perms]) and not mineable_tile in tiles_to_display:
-                    tiles_to_display.append(mineable_tile)
+                if all([mineable_tile in perm for perm in valid_perms]):
+                    tiles_to_flag.add(mineable_tile)
+                elif all([not mineable_tile in perm for perm in valid_perms]) and not mineable_tile in tiles_to_display:
+                    tiles_to_display.add(mineable_tile)
         
-        return tiles_to_flag, tiles_to_display    
+        return list(tiles_to_flag), list(tiles_to_display)    
 
     def final_flags(self):
         field = self.game.field
@@ -264,20 +275,20 @@ class MS_AI:
         assignments = []
         variable_mine_num_components = []
         for comp in nx.connected_components(number_graph):
-            solvr = z3.Solver()
+            solver = z3.Solver()
             all_neb_ids = set()
             for id in comp:
                 tile = field[id]
                 neb_ids = [neb.id for neb in field.neighbors(id) if neb.id in vars.keys()]
-                all_neb_ids = all_neb_ids.union(set(neb_ids))
+                all_neb_ids = all_neb_ids.union(neb_ids)
                 neb_vars = [vars[neb_id] for neb_id in neb_ids]
-                solvr.add(exactly_n(neb_vars, tile.effective_count))
-            sat_asses = [[i for i in vars.keys() if z3.is_true(m[vars[i]])] for m in all_smt(solvr, vars.values())]
+                solver.add(exactly_n(neb_vars, tile.effective_count))
+            sat_asses = [[i for i in vars.keys() if z3.is_true(m[vars[i]])] for m in all_smt(solver, list(vars.values()))]
             variable_num = not all([len(ass) == len(sat_asses[0]) for ass in sat_asses])
             if variable_num:
                 variable_mine_num_components.append((list(comp), list(all_neb_ids)))
             else:
-                assignments.append(np.random.choice(sat_asses, 1))
+                assignments.append(sat_asses[np.random.randint(len(sat_asses))])
 
         remaining_nums = list(chain.from_iterable([x[0] for x in variable_mine_num_components]))
         remaining_nebs = list(chain.from_iterable([x[1] for x in variable_mine_num_components]))
@@ -288,10 +299,12 @@ class MS_AI:
                 tile = field[id]
                 neb_vars = [vars[neb.id] for neb in field.neighbors(id) if neb.id in vars.keys()]
                 solver.add(exactly_n(neb_vars, tile.effective_count))
-            max_total_flag_cond = reduce(z3.Or, [exactly_n(remaining_vars, i) for i in range(self.game.flags+1)])
+            max_total_flag_cond = reduce(z3.Or, [exactly_n(remaining_vars, i) for i in range(min(len(remaining_vars), self.game.flags)+1)])
             solver.add(max_total_flag_cond)
-            sats = [[i for i in vars.keys() if z3.is_true(m[vars[i]])] for m in all_smt(solver, vars.values())]
-            assignments.append(sats[np.random.randint(len(sats))])
+            solver.check()
+            m = solver.model()
+            sat = [i for i in vars.keys() if z3.is_true(m[vars[i]])]
+            assignments.append(sat)
         foo = list(chain.from_iterable(assignments))
         remainder = self.game.flags - len(foo)
         bar = list(np.random.choice(outer_tile_ids, remainder))
