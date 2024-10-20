@@ -308,7 +308,7 @@ class MS_AI:
         foo = list(chain.from_iterable(assignments))
         remainder = self.game.flags - len(foo)
         bar = list(np.random.choice(outer_tile_ids, remainder))
-        return foo + bar
+        return [int(x) for x in foo + bar]
 
     def reset(self) -> None:
         self.full_graph = FullGraph(self.game.field)
