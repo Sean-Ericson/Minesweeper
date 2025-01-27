@@ -253,12 +253,15 @@ class MS_AI:
         tiles_to_display = set()
         tiles_to_flag = set()
 
-        for subgraph_indices in get_connected_subgraphs(number_graph if nodes is None else number_graph.subgraph(nodes), n):
+        subgraphs = get_connected_subgraphs(number_graph if nodes is None else number_graph.subgraph(nodes), n)
+        print(f"\t{len(subgraphs)} subgraphs")
+        for subgraph_indices in subgraphs:
 
             # determine union of all adjacent uncleared tiles
             mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["tile"].flagged]) for i in subgraph_indices]))
 
             valid_perms = self.get_valid_mine_assignments(subgraph_indices, mineable_tiles)
+            print(f"{sorted(subgraph_indices)}\t\t{len(valid_perms)} valid assignments")
             if len(valid_perms) == 0:
                 continue
 
