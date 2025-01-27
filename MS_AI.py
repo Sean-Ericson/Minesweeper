@@ -1,22 +1,24 @@
 # Minesweeper AIs
-from typing import Generator
+from math import prod
 import networkx as nx
 import matplotlib.pyplot as plt
+from networkx import connected_components
 import numpy as np
 from Minesweeper import *
 from functools import reduce
-from itertools import combinations, chain
+from itertools import combinations, chain, product
 from networkx.algorithms import bipartite
+from typing import Generator
 import z3
 
 ############################################################
 # Helper Functions
 ############################################################
 
-def get_connected_subgraphs(G: nx.Graph, size: int):
+def get_connected_subgraphs(G: nx.Graph, size: int) -> list[list[int]]:
     # https://stackoverflow.com/a/75873085/14165696
     """Get all connected subgraphs by a recursive procedure"""
-    def recursive_local_expand(node_set, possible, excluded, results, max_size):
+    def recursive_local_expand(node_set, possible, excluded, results, max_size) -> None:
         """
         Recursive function to add an extra node to the subgraph being formed
         """
@@ -37,12 +39,16 @@ def get_connected_subgraphs(G: nx.Graph, size: int):
 
     return results
 
-def all_smt(s: z3.Solver, initial_terms: list[z3.BoolRef]):
-    def block_term(s: z3.Solver, m: z3.ModelRef, t) -> None:
+def all_smt(s: z3.Solver, initial_terms: list[z3.BoolRef]) -> Generator[z3.ModelRef, None, None]:
+    """
+    Return all satisfying assignments
+    (SMT: satisfiability modulo theories)
+    """
+    def block_term(s: z3.Solver, m: z3.ModelRef, t: z3.BoolRef) -> None:
         s.add(t != m.eval(t, model_completion=True))
-    def fix_term(s, m, t) -> None:
+    def fix_term(s: z3.Solver, m: z3.ModelRef, t: z3.BoolRef) -> None:
         s.add(t == m.eval(t, model_completion=True))
-    def all_smt_rec(terms):
+    def all_smt_rec(terms) -> Generator[z3.ModelRef, None, None]:
         if z3.sat == s.check():
            m = s.model()
            yield m
@@ -55,7 +61,7 @@ def all_smt(s: z3.Solver, initial_terms: list[z3.BoolRef]):
                s.pop()   
     yield from all_smt_rec(list(initial_terms))
 
-def exactly_n(vars, n):
+def exactly_n(vars, n: int):
     """
     Return an expression that evaluates to true if exactly n of vars are true
     """
@@ -73,7 +79,7 @@ def exactly_n(vars, n):
         others = [z3.Not(var) for var in vars if not var in comb]
         falses = reduce(z3.And, others) if len(others) > 1 else others[0]
         ands.append(z3.And(trues, falses))
-    return reduce(z3.Or, ands)
+    return z3.simplify(reduce(z3.Or, ands))
 
 ############################################################
 # Helper Classes
@@ -136,7 +142,7 @@ class MS_AI:
 
         return list(tiles_to_flag), list(tiles_to_display)
 
-    def _make_number_graph(self):
+    def _make_number_graph(self) -> nx.Graph:
         number_tiles = []
         for i in self.full_graph.nodes:
             tile = self.full_graph.nodes[i]["tile"]
@@ -150,13 +156,13 @@ class MS_AI:
         for tile in tiles:
             self.full_graph.tile_displayed(tile)
 
-    def _MS_Game_TileFlagChanged(self, tile: MS_Tile):
+    def _MS_Game_TileFlagChanged(self, tile: MS_Tile) -> None:
         pass
 
     def _MS_Game_GameReset(self) -> None:
         self.reset()
 
-    def display_full_graph(self, trimmed=False) -> None:
+    def display_full_graph(self, trimmed: bool=False) -> None:
         full_graph = nx.Graph(self.full_graph)
         if trimmed:
             for id in [tile.id for tile in self.game.field if tile.flagged]:
@@ -216,16 +222,21 @@ class MS_AI:
         nx.draw(number_graph, pos=pos, with_labels=True, ax=ax)
         fig.show()
     
-    def get_valid_mine_assignments(self, number_tiles, mineable_tiles):
+    def get_valid_mine_assignments(self, number_tiles: list[int], mineable_tiles: list[int]) -> list[list[int]]:
         field = self.game.field
         vars = {i:z3.Bool(f"t{i}") for i in mineable_tiles}
-        solver = z3.Solver()
+        terms = []
         
         for n in number_tiles:
             tile = self.game.field[n]
             neb_vars = [vars[neb.id] for neb in field.neighbors(n) if neb.id in mineable_tiles]
-            solver.add(exactly_n(neb_vars, tile.effective_count))
+            terms.append(exactly_n(neb_vars, tile.effective_count))
         
+        formula = z3.And(*terms)
+        simplified_formula = z3.simplify(formula)
+        solver = z3.Solver()
+        solver.add(simplified_formula)
+
         return [[i for i in mineable_tiles if z3.is_true(m[vars[i]])] for m in all_smt(solver, list(vars.values()))]
 
     def largest_number_subgraph_size(self) -> int:
@@ -234,7 +245,7 @@ class MS_AI:
             return 0
         return max([len(c) for c in nx.connected_components(number_graph)])
 
-    def level_n_actions(self, n, nodes=None) -> tuple[list[int], list[int]]:
+    def level_n_actions(self, n: int, nodes=None) -> tuple[list[int], list[int]]:
         if n == 1:
             return self._level_one_actions()
 
@@ -260,10 +271,11 @@ class MS_AI:
         
         return list(tiles_to_flag), list(tiles_to_display)    
 
-    def final_flags(self):
+    def deduction_exhausted_analysis(self):        
         field = self.game.field
         outer_tile_ids = [tile.id for tile in field if not (tile.displayed or tile.id in self.full_graph)]
         number_graph = self._make_number_graph()
+        frontier_tiles = set()
         vars = dict()
 
         # create variables
@@ -272,43 +284,96 @@ class MS_AI:
             if not (tile.displayed or tile.flagged):
                 vars[id] = z3.Bool(f"t{id}")
         
-        assignments = []
-        variable_mine_num_components = []
-        for comp in nx.connected_components(number_graph):
-            solver = z3.Solver()
-            all_neb_ids = set()
-            for id in comp:
-                tile = field[id]
-                neb_ids = [neb.id for neb in field.neighbors(id) if neb.id in vars.keys()]
-                all_neb_ids = all_neb_ids.union(neb_ids)
-                neb_vars = [vars[neb_id] for neb_id in neb_ids]
-                solver.add(exactly_n(neb_vars, tile.effective_count))
-            sat_asses = [[i for i in vars.keys() if z3.is_true(m[vars[i]])] for m in all_smt(solver, list(vars.values()))]
-            variable_num = not all([len(ass) == len(sat_asses[0]) for ass in sat_asses])
-            if variable_num:
-                variable_mine_num_components.append((list(comp), list(all_neb_ids)))
-            else:
-                assignments.append(sat_asses[np.random.randint(len(sat_asses))])
+        # Get connected components of the number-graph
+        connected_components = list(nx.connected_components(number_graph))
+        component_asses = {}
+        for comp in connected_components:
+            mineable_tiles = [t.id for t in reduce(lambda x,y: x.union(y), [set([neb for neb in field.neighbors(tile) if not (neb.displayed or neb.flagged)]) for tile in comp])]
+            frontier_tiles = frontier_tiles.union(set(mineable_tiles))
+            component_asses[tuple(sorted(comp))] = self.get_valid_mine_assignments(comp, mineable_tiles)
 
-        remaining_nums = list(chain.from_iterable([x[0] for x in variable_mine_num_components]))
-        remaining_nebs = list(chain.from_iterable([x[1] for x in variable_mine_num_components]))
-        remaining_vars = [vars[i] for i in remaining_nebs]
-        if len(remaining_nums) > 0:
-            solver = z3.Solver()
-            for id in remaining_nums:
-                tile = field[id]
-                neb_vars = [vars[neb.id] for neb in field.neighbors(id) if neb.id in vars.keys()]
-                solver.add(exactly_n(neb_vars, tile.effective_count))
-            max_total_flag_cond = reduce(z3.Or, [exactly_n(remaining_vars, i) for i in range(min(len(remaining_vars), self.game.flags)+1)])
-            solver.add(max_total_flag_cond)
-            solver.check()
-            m = solver.model()
-            sat = [i for i in vars.keys() if z3.is_true(m[vars[i]])]
-            assignments.append(sat)
-        foo = list(chain.from_iterable(assignments))
-        remainder = self.game.flags - len(foo)
-        bar = list(np.random.choice(outer_tile_ids, remainder))
-        return [int(x) for x in foo + bar]
+        print("Component assignments: ")
+        for k,v in component_asses.items():
+            print(k)
+            for ass in v:
+                print("\t", sorted(ass))
+
+        complete_asses = [a for a in [list(reduce(lambda x,y: set(x).union(set(y)), ass)) for ass in product(*component_asses.values())] if len(a) <= self.game.flags]
+        print("complete assignments: ")
+        for ass in complete_asses:
+            print(sorted(ass))
+
+        frontier_probs = {tile: len([ass for ass in complete_asses if tile in ass]) / len(complete_asses) for tile in frontier_tiles}
+
+        print("Tile mined probs: ")
+        for k in sorted(frontier_tiles):
+            print(f"{k}: {frontier_probs[k]}")
+
+        print("min frontier prob: ", min(frontier_probs.items(), key=lambda x: x[1]))
+
+        complete_ass_lengths = [len(ass) for ass in complete_asses]
+        if len(outer_tile_ids) > 0:
+            min_outer_tile_prob = (self.game.flags - max(complete_ass_lengths)) / len(outer_tile_ids)
+            max_outer_tile_prob = (self.game.flags - min(complete_ass_lengths)) / len(outer_tile_ids)
+
+            print("min outer prob: ", min_outer_tile_prob)
+            print("max outer prob: ", max_outer_tile_prob)
+
+        foo = "bar"
+        
+
+    def final_flags(self) -> list[int]:
+        field = self.game.field
+        outer_tile_ids = [tile.id for tile in field if not (tile.displayed or tile.id in self.full_graph)]
+        number_graph = self._make_number_graph()
+        frontier_tiles = set()
+        vars = dict()
+
+        # create variables
+        for id in self.full_graph:
+            tile = field[id]
+            if not (tile.displayed or tile.flagged):
+                vars[id] = z3.Bool(f"t{id}")
+        
+        # Get connected components of the number-graph
+        connected_components = list(nx.connected_components(number_graph))
+        component_asses = {}
+        for comp in connected_components:
+            mineable_tiles = [t.id for t in reduce(lambda x,y: x.union(y), [set([neb for neb in field.neighbors(tile) if not (neb.displayed or neb.flagged)]) for tile in comp])]
+            frontier_tiles = frontier_tiles.union(set(mineable_tiles))
+            component_asses[tuple(sorted(comp))] = self.get_valid_mine_assignments(comp, mineable_tiles)
+
+        print("Component assignments: ")
+        for k,v in component_asses.items():
+            print(k)
+            for ass in v:
+                print("\t", sorted(ass))
+
+        complete_asses = [a for a in [list(reduce(lambda x,y: set(x).union(set(y)), ass)) for ass in product(*component_asses.values())] if len(a) <= self.game.flags]
+        print("complete assignments: ")
+        for ass in complete_asses:
+            print(sorted(ass))
+
+        frontier_probs = {tile: len([ass for ass in complete_asses if tile in ass]) / len(complete_asses) for tile in frontier_tiles}
+
+        print("Tile mined probs: ")
+        for k in sorted(frontier_tiles):
+            print(f"{k}: {frontier_probs[k]}")
+
+        print("min frontier prob: ", min(frontier_probs.items(), key=lambda x: x[1]))
+
+        complete_ass_lengths = [len(ass) for ass in complete_asses]
+        if len(outer_tile_ids) > 0:
+            min_outer_tile_prob = (self.game.flags - max(complete_ass_lengths)) / len(outer_tile_ids)
+            max_outer_tile_prob = (self.game.flags - min(complete_ass_lengths)) / len(outer_tile_ids)
+
+            print("min outer prob: ", min_outer_tile_prob)
+            print("max outer prob: ", max_outer_tile_prob)
+
+        selected_ass = complete_asses[np.random.randint(len(complete_asses))]
+        outer_flags = list(np.random.choice(outer_tile_ids, self.game.flags - len(selected_ass)))
+
+        return [int(x) for x in selected_ass + outer_flags]
 
     def reset(self) -> None:
         self.full_graph = FullGraph(self.game.field)

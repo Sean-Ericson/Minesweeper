@@ -1,5 +1,4 @@
 #Minesweeper GUI by Sean Ericson
-from distributed import progress
 from Minesweeper import *
 from MS_AI import MS_AI
 from typing import Union
@@ -258,8 +257,9 @@ class MS_GameWindow(tk.Toplevel):
         self._init_bindings()
         root.after(5, self.update)
 
-    def _debug(self):
+    def _debug(self) -> None:
         foo = "bar"
+
     def _init_bindings(self) -> None:
         self.bind("d", lambda _: self._debug())
         self.bind("<Return>", lambda _: self._MS_GameWindow_Header_MainButtonClicked())
@@ -273,6 +273,7 @@ class MS_GameWindow(tk.Toplevel):
         self.bind("<Control-Down>", lambda _: self.field.tile_size_decrement())
         self.bind("a", lambda _: self.auto_cheat())
         self.bind("f", lambda _: self.cheat_final_flags())
+        self.bind("t", lambda _: self.ai_testing())
         self.bind("1", lambda _: self.cheat(1))
         self.bind("2", lambda _: self.cheat(2))
         self.bind("3", lambda _: self.cheat(3))
@@ -312,7 +313,7 @@ class MS_GameWindow(tk.Toplevel):
         else:
             self.lose_game()
 
-    def _MS_GameWindow_Field_TileLeftClick(self, tile_loc) -> None:
+    def _MS_GameWindow_Field_TileLeftClick(self, tile_loc: tuple[int, int]) -> None:
         if self.game.status == MS_Status.Complete:
             return
         if not self.game.field.is_valid_loc(*tile_loc):
@@ -337,7 +338,7 @@ class MS_GameWindow(tk.Toplevel):
         # Update
         self.update()
 
-    def _MS_GameWindow_Field_TileRightClick(self, tile_loc):
+    def _MS_GameWindow_Field_TileRightClick(self, tile_loc: tuple[int, int]):
         if self.game.status == MS_Status.Complete:
             return
         if not self.game.field.is_valid_loc(*tile_loc):
@@ -369,12 +370,13 @@ class MS_GameWindow(tk.Toplevel):
         time = self.game.get_time()
         self.header.set_time(int(time))
 
-    def auto_cheat(self):
+    def auto_cheat(self) -> None:
         if not self.game.is_active():
-            return
+            self.first_move()
         print("Starting auto cheat")
         i = 1
         max_i = self.AI.largest_number_subgraph_size()
+        print("Largest subgraph: ", max_i)
         while i <= max_i:
             prog = self.cheat(i)
             if prog:
@@ -382,6 +384,7 @@ class MS_GameWindow(tk.Toplevel):
                     break
                 i = 1
                 max_i = self.AI.largest_number_subgraph_size()
+                print("Largest subgraph: ", max_i)
                 self.cheat(1)
             else:
                 i += 1
@@ -391,7 +394,7 @@ class MS_GameWindow(tk.Toplevel):
             pass#self.cheat_final_flags()
         print("Auto cheat complete")
 
-    def cheat(self, n) -> bool:
+    def cheat(self, n: int) -> bool:
         if self.game.is_complete():
             return False
         self.set_thinking(thinking=True)
@@ -411,7 +414,7 @@ class MS_GameWindow(tk.Toplevel):
         self.set_thinking(thinking=False)
         return progress
 
-    def cheat_final_flags(self):
+    def cheat_final_flags(self) -> None:
         print("Starting final-flags cheat")
         flags = self.AI.final_flags()
         for id in flags:
@@ -419,6 +422,11 @@ class MS_GameWindow(tk.Toplevel):
         if self.game.flags == 0:
             self.game.clear_unflagged()
         print("Final-flags cheat complete")        
+
+    def ai_testing(self):
+        self.set_thinking(thinking=True)
+        self.AI.deduction_exhausted_analysis()
+        self.set_thinking(thinking=False)
 
     def first_move(self) -> None:
         if not self.game.is_ready():
@@ -446,7 +454,7 @@ class MS_GameWindow(tk.Toplevel):
     def manual_reset(self) -> None:
         self.game.reset()
 
-    def set_thinking(self, thinking) -> None:
+    def set_thinking(self, thinking: bool) -> None:
         self.header.update_thinking(thinking)
 
     def update(self) -> None:
@@ -474,10 +482,10 @@ class MS_GameWindow_Header(tk.Frame):
         self.time_counter.grid(row=0, column=2, sticky=tk.E)
         self.grid_columnconfigure(1, weight=1)
 
-    def set_time(self, time) -> None:
+    def set_time(self, time: int) -> None:
         self.time_counter.configure(text="{0:0=3d}".format(time))
 
-    def display_score(self, score) -> None:
+    def display_score(self, score: int) -> None:
         self.flag_counter.configure(text="{} / {}".format(score, self.mines))
 
     def reset_header(self) -> None:

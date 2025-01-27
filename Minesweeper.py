@@ -2,7 +2,7 @@
 import random
 import time
 from enum import Enum
-from typing import Union, Any
+from typing import Iterator, Union, Any, Self
 from dataclasses import dataclass
 
 class MS_Status(Enum):
@@ -33,7 +33,7 @@ class EventSource:
     def __init__(self) -> None:
         self.listeners = []
 
-    def __iadd__(self, listener):
+    def __iadd__(self, listener) -> Self:
         """Shortcut for using += to add a listener."""
         self.listeners.append(listener)
         return self
@@ -63,7 +63,7 @@ class MS_Field:
     """
     A minefield in a Minesweeper game.
     """
-    def __init__(self, x: int, y: int, m: int):
+    def __init__(self, x: int, y: int, m: int) -> None:
         self.x = x
         self.y = y
         self.N = x*y
@@ -75,29 +75,28 @@ class MS_Field:
             return self.tiles[key]
         elif isinstance(key, tuple):
             return self.tiles[self.tile_num(*key)]
-        raise TypeError("Key must be int or tuple of ints.")
     
-    def __setitem__(self, key: Union[int, tuple[int, int]], val: MS_Tile):
+    def __setitem__(self, key: Union[int, tuple[int, int]], val: MS_Tile) -> None:
         if isinstance(key, int):
             self.tiles[key] = val
         elif isinstance(key, tuple):
             self.tiles[self.tile_num(*key)] = val
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[MS_Tile]:
         return iter(self.tiles)
 
-    def initialize(self):
+    def initialize(self) -> None:
         """
         Create a new set of tiles, randomly set mines then calculate neighbor mine counts.
         """
         # Create list of tiles
         self.tiles = [MS_Tile(i) for i in range(self.N)]
         
-        # set mines
+        # Set mines
         for i in random.sample(list(range(self.N)), self.m):
             self.tiles[i].mined = True
         
-        # numbers/neighbors
+        # Numbers/neighbors
         for i in range(self.N):
             if self.tiles[i].mined:
                 continue
