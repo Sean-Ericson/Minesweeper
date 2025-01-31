@@ -438,11 +438,13 @@ class MS_GameWindow(tk.Toplevel):
         self._init_game_handlers()
         self.game.start_time = time.time() - self.game.current_time
         self.x, self.y, self.mines = game.x, game.y, game.m
-        self.field.new_field()
+        self.field.new_field(recreate=True)
         self.field.clear_tiles([t for t in game.field if t.displayed])
         for t in game.get_flagged_tile_ids():
             self.field.set_tile_flagged(t)
         self.header.update_flag_count(game.flags)
+        self.AI = MS_AI(self.game)
+        self.AI.init_for_loaded_game()
 
     def lose_game(self) -> None:
         self.header.update_lose(self.game.score)

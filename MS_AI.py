@@ -239,6 +239,11 @@ class MS_AI:
 
         return [[i for i in mineable_tiles if z3.is_true(m[vars[i]])] for m in all_smt(solver, list(vars.values()))]
 
+    def init_for_loaded_game(self) -> None:
+        for t in self.game.field:
+            if t.displayed:
+                self.full_graph.tile_displayed(t)
+
     def largest_number_subgraph_size(self) -> int:
         number_graph = self._make_number_graph()
         if len(number_graph) == 0:
