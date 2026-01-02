@@ -239,6 +239,11 @@ class MS_AI:
 
         return [[i for i in mineable_tiles if z3.is_true(m[vars[i]])] for m in all_smt(solver, list(vars.values()))]
 
+    def init_for_loaded_game(self) -> None:
+        for t in self.game.field:
+            if t.displayed:
+                self.full_graph.tile_displayed(t)
+
     def largest_number_subgraph_size(self) -> int:
         number_graph = self._make_number_graph()
         if len(number_graph) == 0:
@@ -253,12 +258,15 @@ class MS_AI:
         tiles_to_display = set()
         tiles_to_flag = set()
 
-        for subgraph_indices in get_connected_subgraphs(number_graph if nodes is None else number_graph.subgraph(nodes), n):
+        subgraphs = get_connected_subgraphs(number_graph if nodes is None else number_graph.subgraph(nodes), n)
+        print(f"\t{len(subgraphs)} subgraphs")
+        for subgraph_indices in subgraphs:
 
             # determine union of all adjacent uncleared tiles
             mineable_tiles = list(reduce(lambda x,y: x.union(y), [set([id for id in self.full_graph[i] if not self.full_graph.nodes[id]["tile"].flagged]) for i in subgraph_indices]))
 
             valid_perms = self.get_valid_mine_assignments(subgraph_indices, mineable_tiles)
+            print(f"{sorted(subgraph_indices)}\t\t{len(valid_perms)} valid assignments")
             if len(valid_perms) == 0:
                 continue
 
