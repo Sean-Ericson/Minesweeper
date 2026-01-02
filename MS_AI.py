@@ -373,6 +373,9 @@ class MS_AI:
         selected_ass = complete_asses[np.random.randint(len(complete_asses))]
         outer_flags = list(np.random.choice(outer_tile_ids, self.game.flags - len(selected_ass)))
 
+        if len(set(selected_ass).union(set(outer_tile_ids))) != len(selected_ass + outer_tile_ids):
+            raise Exception()
+
         return [int(x) for x in selected_ass + outer_flags]
 
     def reset(self) -> None:

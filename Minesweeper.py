@@ -2,7 +2,7 @@
 import random
 import time
 from enum import Enum
-from typing import Iterator, Union, Any, Self
+from typing import Iterator, Union, Any
 from dataclasses import dataclass
 
 class MS_Status(Enum):
@@ -33,7 +33,7 @@ class EventSource:
     def __init__(self) -> None:
         self.listeners = []
 
-    def __iadd__(self, listener) -> Self:
+    def __iadd__(self, listener):
         """Shortcut for using += to add a listener."""
         self.listeners.append(listener)
         return self
